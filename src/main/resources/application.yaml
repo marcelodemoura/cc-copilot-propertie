@@ -1,0 +1,19 @@
+#spring:
+#  datasource:
+#    url: jdbc:postgresql://localhost:5432/copilot
+#    username: postgres
+#    password: postgres
+#  jdbc:
+#    template:
+#      fetch-size: 100
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/copilot
+    username: postgres
+    password: M1c9j812@@.
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
