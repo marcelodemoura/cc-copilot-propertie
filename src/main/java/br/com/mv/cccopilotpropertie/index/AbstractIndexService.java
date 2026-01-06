@@ -1,5 +1,6 @@
 package br.com.mv.cccopilotpropertie.index;
 
+import br.com.mv.cccopilotpropertie.domain.IndexJob;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 
