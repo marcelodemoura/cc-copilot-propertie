@@ -1,6 +1,6 @@
 package br.com.mv.cccopilotpropertie.controller;
 
-import br.com.mv.cccopilotpropertie.index.IndexJob;
+import br.com.mv.cccopilotpropertie.domain.IndexJob;
 import br.com.mv.cccopilotpropertie.index.IndexService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
