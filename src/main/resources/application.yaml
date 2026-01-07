@@ -21,3 +21,6 @@ indexer:
   base-path: /home/marcelo/IdeaProjects/cc-copilot-propertie
 
 #  base-path: /home/marcelo/IdeaProjects
+openai:
+  api:
+    key: SUA_CHAVE_AQUI
