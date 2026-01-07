@@ -6,7 +6,6 @@ import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-
 @Service
 public class SearchService {
 
@@ -18,10 +17,8 @@ public class SearchService {
         repo = r;
     }
 
-    public List<SearchResult> search(String question) {
+    public List<SearchResult> search(String question, int limit) {
         float[] q = embedder.embed(question);
-        return repo.search(q, 6);
+        return repo.search(q, limit);
     }
-
-
 }

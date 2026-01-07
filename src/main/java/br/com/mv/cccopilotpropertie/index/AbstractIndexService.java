@@ -1,12 +1,13 @@
 package br.com.mv.cccopilotpropertie.index;
 
-import br.com.mv.cccopilotpropertie.domain.IndexJob;
+import br.com.mv.cccopilotpropertie.domain.IndexJobEntity;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.UUID;
 
 public abstract class AbstractIndexService {
@@ -28,7 +29,7 @@ public abstract class AbstractIndexService {
         this.repo = r;
     }
 
-    protected IndexJob runIndex(Path root) throws IOException {
+    protected IndexJobEntity runIndex(Path root) throws IOException {
 
         UUID jobId = UUID.randomUUID();
         int files = 0;
@@ -44,7 +45,8 @@ public abstract class AbstractIndexService {
             }
         }
 
-        return new IndexJob(jobId, files, chunks);
+        return new IndexJobEntity(jobId, files, chunks, Instant.now());
+
     }
 }
 
