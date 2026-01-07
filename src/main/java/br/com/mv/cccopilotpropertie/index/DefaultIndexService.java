@@ -26,11 +26,6 @@ public class DefaultIndexService extends AbstractIndexService implements IndexSe
         return runIndex(Path.of(rootPath));
     }
 
-
-    @Override
-    public void runIndex() {
-
-    }
 }
 
 
