@@ -1,7 +1,7 @@
 package br.com.mv.cccopilotpropertie.controller;
 
-import br.com.mv.cccopilotpropertie.domain.IndexJob;
 import br.com.mv.cccopilotpropertie.index.IndexService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,8 +19,12 @@ public class IndexController {
         this.indexService = indexService;
     }
 
-    @PostMapping
-    public IndexJob index(@RequestParam String path) throws IOException {
-        return indexService.indexPath(path);
+    @PostMapping("/index")
+    public ResponseEntity<?> index(@RequestParam String path) {
+        try {
+            return ResponseEntity.ok(indexService.indexPath(path));
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 }
