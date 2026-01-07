@@ -12,17 +12,24 @@ import java.nio.file.Path;
 @Service
 public class DefaultIndexService extends AbstractIndexService implements IndexService {
 
-    public DefaultIndexService(FileScannerService s,
-                               ChunkService c,
-                               EmbeddingService e,
-                               EmbeddingRepository r) {
+    public DefaultIndexService(
+            FileScannerService s,
+            ChunkService c,
+            EmbeddingService e,
+            EmbeddingRepository r
+    ) {
         super(s, c, e, r);
     }
 
     @Override
     public IndexJob indexPath(String rootPath) throws IOException {
-        Path root = Path.of(rootPath).normalize().toAbsolutePath();
-        return runIndex(root);
+        return runIndex(Path.of(rootPath));
+    }
+
+
+    @Override
+    public void runIndex() {
+
     }
 }
 
