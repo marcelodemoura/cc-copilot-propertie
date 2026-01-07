@@ -8,16 +8,21 @@ import java.util.List;
 @Component
 public class PromptAssembler {
 
-    public String buildPrompt(String question, List<SearchResult> docs) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Use the context below to answer the question.\n\n");
+    public String build(String question, List<SearchResult> context) {
 
-        for (SearchResult d : docs) {
-            sb.append("Source: ").append(d.path()).append("\n");
-            sb.append(d.content()).append("\n\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("Você é um copiloto que responde SOMENTE usando o contexto abaixo.\n\n");
+
+        for (SearchResult r : context) {
+            sb.append("Fonte:\n");
+            sb.append("Arquivo: ").append(r.path()).append("\n");
+            sb.append(r.content()).append("\n---\n");
+
         }
 
-        sb.append("Question: ").append(question);
+        sb.append("\nPergunta: ").append(question);
+        sb.append("\nResposta:");
+
         return sb.toString();
     }
 }
