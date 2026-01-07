@@ -1,6 +1,9 @@
 package br.com.mv.cccopilotpropertie.copilot.application;
 
-import br.com.mv.cccopilotpropertie.embedding.OpenAiChatService;
+//import br.com.mv.cccopilotpropertie.embedding.OpenAiChatService;
+import br.com.mv.cccopilotpropertie.llm.OpenAiChatService;
+
+
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import org.springframework.stereotype.Service;
 

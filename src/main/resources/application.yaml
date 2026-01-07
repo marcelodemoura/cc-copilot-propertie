@@ -17,3 +17,7 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+indexer:
+  base-path: /home/marcelo/IdeaProjects/cc-copilot-propertie
+
+#  base-path: /home/marcelo/IdeaProjects
