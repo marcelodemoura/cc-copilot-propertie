@@ -19,7 +19,10 @@ public class CopilotController {
 
     @PostMapping
     public CopilotAnswer ask(@RequestBody AskRequest req) {
-        return copilot.ask(req.tenantId(), req.knowledgeBase(), req.question());
+        return copilot.ask(
+                req.tenantId(),
+                req.knowledgeBase(),
+                req.question());
     }
 }
 

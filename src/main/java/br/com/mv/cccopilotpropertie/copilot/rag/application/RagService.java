@@ -1,52 +1,59 @@
 package br.com.mv.cccopilotpropertie.copilot.rag.application;
 
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
-import br.com.mv.cccopilotpropertie.copilot.history.application.CopilotHistoryService;
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class RagService {
 
     private final SearchService search;
-    private final PromptAssembler prompt;
+    private final PromptAssembler promptAssembler;
     private final AnswerService answer;
-    private final CopilotHistoryService history;
 
-    public RagService(SearchService s, PromptAssembler p, AnswerService a, CopilotHistoryService history) {
-        search = s;
-        prompt = p;
-        answer = a;
-        this.history = history;
+    public RagService(
+            SearchService search,
+            PromptAssembler promptAssembler,
+            AnswerService answer
+    ) {
+        this.search = search;
+        this.promptAssembler = promptAssembler;
+        this.answer = answer;
     }
 
     public CopilotAnswer ask(
-            String tenant,
+            String tenantId,
             String knowledgeBase,
             String question
     ) {
+        var docs = search.search(tenantId, knowledgeBase, question, 6);
 
-        var context = search.search(tenant, knowledgeBase, question, 6);
+        var prompt = promptAssembler.build(question, docs);
+        var response = answer.ask(prompt);
 
-        var promptFinal = prompt.build(question, context);
-
-        var response = answer.ask(promptFinal);
-
-        double confidence = context.stream()
-                .mapToDouble(SearchResult::score)
-                .average()
-                .orElse(0);
-
-        var sources = context.stream()
-                .map(r -> new CopilotAnswer.Source(r.path(), r.score()))
+        var sources = docs.stream()
+                .map(d -> new CopilotAnswer.Source(d.path(), d.score()))
                 .toList();
 
-        var copilotAnswer = new CopilotAnswer(response, sources, confidence);
+        var confidence = calculateConfidence(docs);
 
-        // 👇 AQUI entra o histórico
-        history.save(tenant, knowledgeBase, question, copilotAnswer);
+        return new CopilotAnswer(
+                response,
+                sources,
+                confidence
+        );
+    }
+    private double calculateConfidence(List<SearchResult> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return 0.0;
+        }
 
-        return copilotAnswer;
+        return docs.stream()
+                .mapToDouble(SearchResult::score)
+                .average()
+                .orElse(0.0);
     }
 }
