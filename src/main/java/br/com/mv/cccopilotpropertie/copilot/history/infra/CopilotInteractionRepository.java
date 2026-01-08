@@ -7,9 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.UUID;
-
 @Repository
-public interface CopilotInteractionRepository extends JpaRepository<CopilotInteractionEntity, UUID> {
+public interface CopilotInteractionRepository
+        extends JpaRepository<CopilotInteractionEntity, UUID> {
 
     Page<CopilotInteractionEntity> findByTenantId(
             String tenantId,

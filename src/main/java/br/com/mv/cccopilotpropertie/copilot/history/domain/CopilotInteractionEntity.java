@@ -1,23 +1,23 @@
 package br.com.mv.cccopilotpropertie.copilot.history.domain;
 
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
-
 @Entity
+@Table(name = "copilot_interaction")
 @Getter
-@NoArgsConstructor
-@Table(name = "copilot_interactions")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CopilotInteractionEntity {
 
     @Id
     @GeneratedValue
     private UUID id;
 
-    public String tenantId;
+    private String tenantId;
     private String knowledgeBase;
 
     @Column(columnDefinition = "TEXT")
