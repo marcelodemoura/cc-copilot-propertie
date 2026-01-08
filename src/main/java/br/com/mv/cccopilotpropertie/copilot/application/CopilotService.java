@@ -12,7 +12,7 @@ public class CopilotService {
         this.rag = rag;
     }
 
-    public String ask(String question) {
-        return rag.ask(question);
+    public String ask(String tenantId, String knowledgeBase, String question) {
+        return rag.ask(tenantId, knowledgeBase, question);
     }
 }

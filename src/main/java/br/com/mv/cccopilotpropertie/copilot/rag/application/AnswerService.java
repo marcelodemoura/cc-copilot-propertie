@@ -1,17 +1,16 @@
 package br.com.mv.cccopilotpropertie.copilot.rag.application;
 
-import br.com.mv.cccopilotpropertie.llm.apllication.LlmClient;
-import org.springframework.stereotype.Service;
+import br.com.mv.cccopilotpropertie.llm.application.LlmClient;
 
-@Service
-public class AnswerService {
+public abstract class AnswerService {
+
     private final LlmClient llm;
 
-    public AnswerService(LlmClient llm) {
+    protected AnswerService(LlmClient llm) {
         this.llm = llm;
     }
 
-    public String answer(String prompt) {
+    public String ask(String prompt) {
         return llm.complete(prompt);
     }
 }
