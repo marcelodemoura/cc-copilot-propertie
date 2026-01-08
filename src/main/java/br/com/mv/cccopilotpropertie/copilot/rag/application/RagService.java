@@ -1,27 +1,31 @@
 package br.com.mv.cccopilotpropertie.copilot.rag.application;
 
+import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
-import org.springframework.stereotype.Service;
-@Service
+import org.springframework.stereotype.Service;@Service
 public class RagService {
 
     private final SearchService search;
-    private final PromptAssembler prompt;
+    private final PromptAssembler promptAssembler;
     private final AnswerService answer;
+    private final ConfidenceEvaluator confidence;
 
-    public RagService(SearchService search, PromptAssembler prompt, AnswerService answer) {
-        this.search = search;
-        this.prompt = prompt;
-        this.answer = answer;
+    public RagService(SearchService s, PromptAssembler p, AnswerService a, ConfidenceEvaluator c) {
+        search = s;
+        promptAssembler = p;
+        answer = a;
+        confidence = c;
     }
 
-    public String ask(String tenantId, String knowledgeBase, String question) {
+    public CopilotAnswer ask(String tenant, String kb, String question) {
 
-        var context = search.search(tenantId, knowledgeBase, question, 6);
+        var context = search.search(tenant, kb, question, 5);
+        var prompt = promptAssembler.build(question, context);
+        var response = answer.ask(prompt);
+        var score = confidence.score(question, response, context);
 
-        var finalPrompt = prompt.build(question, context);
-
-        return answer.ask(finalPrompt);
+        return new CopilotAnswer(response, score);
     }
 }
+
 

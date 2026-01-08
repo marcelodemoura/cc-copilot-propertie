@@ -1,5 +1,6 @@
 package br.com.mv.cccopilotpropertie.copilot.application;
 
+import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.rag.application.RagService;
 import org.springframework.stereotype.Service;
 
@@ -12,7 +13,7 @@ public class CopilotService {
         this.rag = rag;
     }
 
-    public String ask(String tenantId, String knowledgeBase, String question) {
+    public CopilotAnswer ask(String tenantId, String knowledgeBase, String question) {
         return rag.ask(tenantId, knowledgeBase, question);
     }
 }
