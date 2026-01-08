@@ -1,11 +1,15 @@
 package br.com.mv.cccopilotpropertie.copilot.history.domain;
 
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
 
 @Entity
+@Getter
+@NoArgsConstructor
 @Table(name = "copilot_interactions")
 public class CopilotInteractionEntity {
 
@@ -13,7 +17,7 @@ public class CopilotInteractionEntity {
     @GeneratedValue
     private UUID id;
 
-    private String tenantId;
+    public String tenantId;
     private String knowledgeBase;
 
     @Column(columnDefinition = "TEXT")
@@ -25,8 +29,6 @@ public class CopilotInteractionEntity {
     private double confidence;
 
     private Instant createdAt = Instant.now();
-
-    protected CopilotInteractionEntity() {}
 
     public CopilotInteractionEntity(
             String tenantId,
