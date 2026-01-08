@@ -13,19 +13,30 @@ public class PromptAssembler {
         StringBuilder sb = new StringBuilder();
 
         sb.append("""
-        Você é o CC Copilot.
-        Você responde APENAS com base nas informações fornecidas abaixo.
-        Se a resposta não estiver nos trechos, responda: "Não encontrei essa informação no sistema."
+        Você é o CC Copilot, um assistant iconic do Command Center MV.
 
-        === BASE DE CONHECIMENTO ===
+        REGRAS:
+        - Responda APENAS com base no conteúdo fornecido em CONTEXTO.
+        - Se a informação não estiver no contexto, responda exatamente:
+          "Não encontrei essa informação na base de conhecimento."
+        - Não invente, não deduza, não presuma.
+
+        Ao final da resposta, cite as fontes no formato:
+        Fonte: <path>
+
+        =================== CONTEXTO ===================
         """);
 
         for (SearchResult r : context) {
-            sb.append("- ").append(r.content()).append("\n");
+            sb.append("""
+            ---
+            FONTE: %s
+            %s
+            """.formatted(r.path(), r.content()));
         }
 
         sb.append("""
-        ============================
+        =================================================
 
         Pergunta:
         """).append(question);
