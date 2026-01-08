@@ -1,4 +1,4 @@
-package br.com.mv.cccopilotpropertie.llm.apllication;
+package br.com.mv.cccopilotpropertie.llm.application;
 
 public interface LlmClient {
 

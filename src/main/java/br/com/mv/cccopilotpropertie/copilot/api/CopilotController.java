@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/ask")
+@RequestMapping("/copilot")
 public class CopilotController {
 
     private final CopilotService copilot;
@@ -16,9 +16,10 @@ public class CopilotController {
         this.copilot = copilot;
     }
 
-    @PostMapping
+    @PostMapping("/ask")
     public String ask(@RequestBody AskRequest req) {
-        return copilot.ask(req.question());
+        return copilot.ask(req.tenantId(), req.knowledgeBase(), req.question());
     }
 }
+
 

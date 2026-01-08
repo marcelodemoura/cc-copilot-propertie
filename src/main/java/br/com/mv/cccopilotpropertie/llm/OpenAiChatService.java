@@ -1,6 +1,6 @@
 package br.com.mv.cccopilotpropertie.llm;
 
-import br.com.mv.cccopilotpropertie.llm.apllication.LlmClient;
+import br.com.mv.cccopilotpropertie.llm.application.LlmClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
