@@ -40,8 +40,10 @@ public class PostgresVectorSearchRepository implements SearchRepository{
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
                         rs.getString("content"),
-                        rs.getDouble("score")
-                )
-        );
+                        rs.getDouble("score"),
+                        rs.getString("knowledge_base"),
+                        rs.getString("tenant_id")
+                ));
+
     }
 }
