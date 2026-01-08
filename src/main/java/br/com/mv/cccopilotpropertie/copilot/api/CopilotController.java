@@ -1,6 +1,7 @@
 package br.com.mv.cccopilotpropertie.copilot.api;
 
 import br.com.mv.cccopilotpropertie.copilot.application.CopilotService;
+import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,8 +17,8 @@ public class CopilotController {
         this.copilot = copilot;
     }
 
-    @PostMapping("/ask")
-    public String ask(@RequestBody AskRequest req) {
+    @PostMapping
+    public CopilotAnswer ask(@RequestBody AskRequest req) {
         return copilot.ask(req.tenantId(), req.knowledgeBase(), req.question());
     }
 }
