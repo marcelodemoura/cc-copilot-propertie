@@ -11,17 +11,26 @@ public class PromptAssembler {
     public String build(String question, List<SearchResult> context) {
 
         StringBuilder sb = new StringBuilder();
-        sb.append("Você é um copiloto que responde SOMENTE usando o contexto abaixo.\n\n");
+
+        sb.append("""
+        Você é o CC Copilot.
+        Você responde APENAS com base nas informações fornecidas abaixo.
+        Se a resposta não estiver nos trechos, responda: "Não encontrei essa informação no sistema."
+
+        === BASE DE CONHECIMENTO ===
+        """);
 
         for (SearchResult r : context) {
-            sb.append("Fonte:\n");
-            sb.append("Arquivo: ").append(r.path()).append("\n");
-            sb.append(r.content()).append("\n---\n");
-
+            sb.append("- ").append(r.content()).append("\n");
         }
 
-        sb.append("\nPergunta: ").append(question);
-        sb.append("\nResposta:");
+        sb.append("""
+        ============================
+
+        Pergunta:
+        """).append(question);
+
+        sb.append("\n\nResposta:");
 
         return sb.toString();
     }

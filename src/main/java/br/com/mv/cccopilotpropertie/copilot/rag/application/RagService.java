@@ -6,26 +6,22 @@ import org.springframework.stereotype.Service;
 public class RagService {
 
     private final SearchService search;
-    private final PromptAssembler promptAssembler;
+    private final PromptAssembler prompt;
     private final AnswerService answer;
 
-    public RagService(SearchService s,
-                      PromptAssembler p,
-                      AnswerService a) {
-        search = s;
-        promptAssembler = p;
-        answer = a;
+    public RagService(SearchService search, PromptAssembler prompt, AnswerService answer) {
+        this.search = search;
+        this.prompt = prompt;
+        this.answer = answer;
     }
 
-    public String ask(String tenantId,
-                      String knowledgeBase,
-                      String question) {
+    public String ask(String tenantId, String knowledgeBase, String question) {
 
         var context = search.search(tenantId, knowledgeBase, question, 6);
-        var prompt = promptAssembler.build(question, context);
-        return answer.ask(prompt);
+
+        var finalPrompt = prompt.build(question, context);
+
+        return answer.ask(finalPrompt);
     }
 }
-
-
 
