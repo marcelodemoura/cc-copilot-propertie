@@ -27,7 +27,7 @@ public class PromptAssembler {
         =================== CONTEXTO ===================
         """);
 
-        for (SearchResult r : context) {
+        for (SearchResult r : context.stream().limit(5).toList()){
             sb.append("""
             ---
             FONTE: %s

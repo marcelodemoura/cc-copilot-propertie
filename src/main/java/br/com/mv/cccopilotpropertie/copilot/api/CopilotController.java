@@ -7,6 +7,25 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+//@RestController
+//@RequestMapping("/copilot")
+//public class CopilotController {
+//
+//    private final CopilotService copilot;
+//
+//    public CopilotController(CopilotService copilot) {
+//        this.copilot = copilot;
+//    }
+//
+//    @PostMapping("/ask")
+//    public CopilotAnswer ask(@RequestBody AskRequest req) {
+//        return copilot.ask(
+//                req.tenantId(),
+//                req.knowledgeBase(),
+//                req.question());
+//    }
+//}
+
 @RestController
 @RequestMapping("/copilot")
 public class CopilotController {
@@ -17,13 +36,13 @@ public class CopilotController {
         this.copilot = copilot;
     }
 
-    @PostMapping
+    @PostMapping("/ask")
     public CopilotAnswer ask(@RequestBody AskRequest req) {
         return copilot.ask(
                 req.tenantId(),
                 req.knowledgeBase(),
-                req.question());
+                req.question()
+        );
     }
 }
-
 

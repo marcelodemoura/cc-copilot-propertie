@@ -6,5 +6,10 @@ import java.util.List;
 
 public interface ReRanker {
 
+    List<SearchResult> rerank(
+            String question,
+            List<SearchResult> results
+    );
+
     List<SearchResult> rerank(String question, List<SearchResult> candidates, int topK);
 }

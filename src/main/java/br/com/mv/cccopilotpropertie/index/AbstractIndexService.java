@@ -37,11 +37,16 @@ public abstract class AbstractIndexService {
 
         for (Path file : scanner.scan(root)) {
             files++;
+            String filePath = file.toString();
+            
+            // Remove dados existentes do arquivo antes de reindexar
+            repo.deleteByPath(filePath);
+            
             String content = Files.readString(file);
 
             for (String chunk : chunker.chunk(content)) {
                 chunks++;
-                repo.save(jobId, file.toString(), chunk, embedder.embed(chunk));
+                repo.save(UUID.randomUUID(), filePath, chunk, embedder.embed(chunk));
             }
         }
 

@@ -17,6 +17,14 @@ public class EmbeddingRepository {
         jdbc.update("""
                     INSERT INTO code_embeddings(id, path, content, embedding)
                     VALUES (?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        path = EXCLUDED.path,
+                        content = EXCLUDED.content,
+                        embedding = EXCLUDED.embedding
                 """, id, path, content, vector);
+    }
+
+    public void deleteByPath(String path) {
+        jdbc.update("DELETE FROM code_embeddings WHERE path = ?", path);
     }
 }

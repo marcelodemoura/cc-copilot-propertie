@@ -31,6 +31,16 @@ public class RagService {
     ) {
         var docs = search.search(tenantId, knowledgeBase, question, 6);
 
+        double confidence = calculateConfidence(docs);
+
+        if (docs.isEmpty() || confidence < 0.15) {
+            return new CopilotAnswer(
+                    "Não encontrei informações suficientes na base de conhecimento para responder essa pergunta.",
+                    List.of(),
+                    confidence
+            );
+        }
+
         var prompt = promptAssembler.build(question, docs);
         var response = answer.ask(prompt);
 
@@ -38,20 +48,20 @@ public class RagService {
                 .map(d -> new CopilotAnswer.Source(d.path(), d.score()))
                 .toList();
 
-        var confidence = calculateConfidence(docs);
-
         return new CopilotAnswer(
                 response,
                 sources,
                 confidence
         );
     }
+
     private double calculateConfidence(List<SearchResult> docs) {
         if (docs == null || docs.isEmpty()) {
             return 0.0;
         }
 
         return docs.stream()
+                .limit(3)
                 .mapToDouble(SearchResult::score)
                 .average()
                 .orElse(0.0);
