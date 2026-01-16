@@ -16,17 +16,21 @@ public abstract class AbstractIndexService {
     protected final ChunkService chunker;
     protected final EmbeddingService embedder;
     protected final EmbeddingRepository repo;
+    protected final String tenantId;
+    protected final String knowledgeBase;
 
     protected AbstractIndexService(
             FileScannerService s,
             ChunkService c,
             EmbeddingService e,
-            EmbeddingRepository r
+            EmbeddingRepository r, EmbeddingRepository t, EmbeddingRepository knowledgeBase
     ) {
         this.scanner = s;
         this.chunker = c;
         this.embedder = e;
         this.repo = r;
+        this.tenantId = t.toString();
+        this.knowledgeBase = knowledgeBase.toString();
     }
 
     protected IndexJobEntity runIndex(Path root) throws IOException {
@@ -46,7 +50,14 @@ public abstract class AbstractIndexService {
 
             for (String chunk : chunker.chunk(content)) {
                 chunks++;
-                repo.save(UUID.randomUUID(), filePath, chunk, embedder.embed(chunk));
+                repo.save(
+                        UUID.randomUUID(),
+                        tenantId,
+                        knowledgeBase,
+                        filePath,
+                        chunk,
+                        embedder.embed(chunk)
+                );
             }
         }
 

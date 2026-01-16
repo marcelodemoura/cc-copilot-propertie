@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
-
 @Service
 public class DefaultIndexService implements IndexService {
 
@@ -18,10 +17,12 @@ public class DefaultIndexService implements IndexService {
     private final EmbeddingService embedder;
     private final EmbeddingRepository repo;
 
-    public DefaultIndexService(FileScannerService scanner,
-                               ChunkService chunker,
-                               EmbeddingService embedder,
-                               EmbeddingRepository repo) {
+    public DefaultIndexService(
+            FileScannerService scanner,
+            ChunkService chunker,
+            EmbeddingService embedder,
+            EmbeddingRepository repo
+    ) {
         this.scanner = scanner;
         this.chunker = chunker;
         this.embedder = embedder;
@@ -29,22 +30,20 @@ public class DefaultIndexService implements IndexService {
     }
 
     @Override
-    public IndexResult indexPath(String rootPath) throws IOException {
+    public IndexResult indexPath(String rootPath, String knowledgeBase) throws IOException {
 
         Path root = Path.of(rootPath).normalize().toAbsolutePath();
 
         if (!Files.exists(root)) {
-            throw new IllegalArgumentException(
-                    "Caminho não existe: " + root
-            );
+            throw new IllegalArgumentException("Caminho não existe: " + root);
         }
 
         if (!Files.isDirectory(root)) {
-            throw new IllegalArgumentException(
-                    "Caminho não é um diretório: " + root
-            );
+            throw new IllegalArgumentException("Caminho não é um diretório: " + root);
         }
+
         UUID jobId = UUID.randomUUID();
+        String tenantId = "default"; // 🔒 por enquanto explícito
 
         int fileCount = 0;
         int chunkCount = 0;
@@ -56,22 +55,23 @@ public class DefaultIndexService implements IndexService {
             try {
                 content = Files.readString(file);
             } catch (Exception e) {
-                // log.warn("Ignorando arquivo {}: {}", file, e.getMessage());
                 continue;
             }
 
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;
+
                 repo.save(
-                        UUID.randomUUID(),      // 🔑 ID único por chunk
-                        file.toString(),
-                        chunk,
-                        embedder.embed(chunk)
+                        UUID.randomUUID(),      // id
+                        tenantId,               // ✅ tenant
+                        knowledgeBase,          // ✅ knowledgeBase
+                        file.toString(),        // path
+                        chunk,                  // content
+                        embedder.embed(chunk)   // embedding
                 );
             }
         }
 
         return new IndexResult(jobId, fileCount, chunkCount);
     }
-
 }

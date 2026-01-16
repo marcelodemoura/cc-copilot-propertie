@@ -1,41 +1,65 @@
 package br.com.mv.cccopilotpropertie.ingest;
 
-import br.com.mv.cccopilotpropertie.domain.CodeChunk;
+
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.util.TextSplitter;
-import br.com.mv.cccopilotpropertie.vectorstore.VectorRepository;
+import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.file.*;
 import java.util.UUID;
-
 @Service
 public class CodeIngestionService {
 
     private final EmbeddingService embedder;
-    private final VectorRepository repo;
+    private final EmbeddingRepository repo;
 
-    public CodeIngestionService(EmbeddingService e, VectorRepository r) {
-        this.embedder = e;
-        this.repo = r;
+    public CodeIngestionService(
+            EmbeddingService embedder,
+            EmbeddingRepository repo
+    ) {
+        this.embedder = embedder;
+        this.repo = repo;
     }
 
-    public void ingest(Path root) throws Exception {
+    public void ingest(
+            Path root,
+            String tenantId,
+            String knowledgeBase
+    ) throws IOException {
+
         Files.walk(root)
                 .filter(p -> p.toString().endsWith(".java"))
-                .forEach(this::processFile);
+                .forEach(p -> processFile(p, tenantId, knowledgeBase));
     }
 
-    private void processFile(Path path) {
+    private void processFile(
+            Path path,
+            String tenantId,
+            String knowledgeBase
+    ) {
         try {
             String content = Files.readString(path);
+
             for (String part : TextSplitter.split(content, 1500)) {
                 float[] vector = embedder.embed(part);
-                repo.save(new CodeChunk(UUID.randomUUID(), path.toString(), part, vector));
+
+                repo.save(
+                        UUID.randomUUID(),
+                        tenantId,
+                        knowledgeBase,
+                        path.toString(),
+                        part,
+                        vector
+                );
             }
+
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new RuntimeException(
+                    "Erro ao ingerir arquivo: " + path,
+                    e
+            );
         }
     }
-
 }

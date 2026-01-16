@@ -9,8 +9,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 
-@RestController
 @RequestMapping("/index")
+@RestController
 public class IndexController {
 
     private final IndexService indexService;
@@ -20,8 +20,15 @@ public class IndexController {
     }
 
     @PostMapping
-    public IndexResult index(@RequestParam String path) throws IOException {
-        return indexService.indexPath(path);
+    public IndexResult index(
+            @RequestParam String path,
+            @RequestParam String knowledgeBase
+    ) throws IOException {
 
+        if (knowledgeBase == null || knowledgeBase.isBlank()) {
+            throw new IllegalArgumentException("knowledgeBase é obrigatória");
+        }
+
+        return indexService.indexPath(path, knowledgeBase);
     }
 }
