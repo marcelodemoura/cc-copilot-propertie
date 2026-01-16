@@ -10,11 +10,16 @@ import org.springframework.web.client.RestTemplate;
 import java.util.*;
 
 @Service
-@Profile("!mock")
+@Profile("openai")
 public class OpenAiChatService implements LlmClient {
 
-    @Value("${openai.api.key}")
-    private String apiKey;
+    private final String apiKey;
+
+    public OpenAiChatService(
+            @Value("${llm.openai.api-key}") String apiKey
+    ) {
+        this.apiKey = apiKey;
+    }
 
     private final RestTemplate rest = new RestTemplate();
 

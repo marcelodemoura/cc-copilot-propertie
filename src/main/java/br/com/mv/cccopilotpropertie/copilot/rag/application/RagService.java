@@ -29,7 +29,7 @@ public class RagService {
             String knowledgeBase,
             String question
     ) {
-        var docs = search.search(tenantId, knowledgeBase, question, 6);
+        var docs = search.search(tenantId, knowledgeBase, question, 12);
 
         double confidence = calculateConfidence(docs);
 

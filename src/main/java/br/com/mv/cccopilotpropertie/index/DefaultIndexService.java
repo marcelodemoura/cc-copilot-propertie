@@ -32,6 +32,18 @@ public class DefaultIndexService implements IndexService {
     public IndexResult indexPath(String rootPath) throws IOException {
 
         Path root = Path.of(rootPath).normalize().toAbsolutePath();
+
+        if (!Files.exists(root)) {
+            throw new IllegalArgumentException(
+                    "Caminho não existe: " + root
+            );
+        }
+
+        if (!Files.isDirectory(root)) {
+            throw new IllegalArgumentException(
+                    "Caminho não é um diretório: " + root
+            );
+        }
         UUID jobId = UUID.randomUUID();
 
         int fileCount = 0;
@@ -39,14 +51,27 @@ public class DefaultIndexService implements IndexService {
 
         for (Path file : scanner.scan(root)) {
             fileCount++;
-            String content = Files.readString(file);
+
+            String content;
+            try {
+                content = Files.readString(file);
+            } catch (Exception e) {
+                // log.warn("Ignorando arquivo {}: {}", file, e.getMessage());
+                continue;
+            }
 
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;
-                repo.save(jobId, file.toString(), chunk, embedder.embed(chunk));
+                repo.save(
+                        UUID.randomUUID(),      // 🔑 ID único por chunk
+                        file.toString(),
+                        chunk,
+                        embedder.embed(chunk)
+                );
             }
         }
 
         return new IndexResult(jobId, fileCount, chunkCount);
     }
+
 }

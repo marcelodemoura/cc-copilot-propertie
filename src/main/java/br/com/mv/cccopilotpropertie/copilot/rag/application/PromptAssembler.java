@@ -13,33 +13,38 @@ public class PromptAssembler {
         StringBuilder sb = new StringBuilder();
 
         sb.append("""
-        Você é o CC Copilot, um assistant iconic do Command Center MV.
+                        Você é um copiloto técnico especializado em análise de código Java.
+                
+                        TAREFA:
+                        - Analise o CÓDIGO fornecido abaixo.
+                        - Identifique campos obrigatórios (ex: @NotNull, @NotBlank).
+                        - Informe:
+                          • Nome do DTO
+                          • Campo
+                          • Anotação
+                          • Onde isso é validado (classe)
+                        REGRAS:
+                        - Use SOMENTE o código fornecido.
+                        - Se não houver validação explícita, diga isso claramente.
+                        - Não invente informações.
+                
+                
+                        === CÓDIGO ===
+                """);
 
-        REGRAS:
-        - Responda APENAS com base no conteúdo fornecido em CONTEXTO.
-        - Se a informação não estiver no contexto, responda exatamente:
-          "Não encontrei essa informação na base de conhecimento."
-        - Não invente, não deduza, não presuma.
-
-        Ao final da resposta, cite as fontes no formato:
-        Fonte: <path>
-
-        =================== CONTEXTO ===================
-        """);
-
-        for (SearchResult r : context.stream().limit(5).toList()){
+        for (SearchResult r : context.stream().limit(5).toList()) {
             sb.append("""
-            ---
-            FONTE: %s
-            %s
-            """.formatted(r.path(), r.content()));
+                    ---
+                    FONTE: %s
+                    %s
+                    """.formatted(r.path(), r.content()));
         }
 
         sb.append("""
-        =================================================
-
-        Pergunta:
-        """).append(question);
+                =================================================
+                
+                Pergunta:
+                """).append(question);
 
         sb.append("\n\nResposta:");
 
