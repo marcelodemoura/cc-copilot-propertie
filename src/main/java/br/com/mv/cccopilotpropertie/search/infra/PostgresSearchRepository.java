@@ -25,16 +25,16 @@ public class PostgresSearchRepository implements SearchRepository {
     ) {
 
         return jdbc.query("""
-            SELECT
-                path,
-                content,
-                1 - (embedding <=> ?::vector) AS score
-            FROM code_embeddings
-            WHERE tenant_id = ?
-              AND knowledge_base = ?
-            ORDER BY embedding <=> ?::vector
-            LIMIT ?
-        """,
+                            SELECT
+                                path,
+                                content,
+                                1 - (embedding <=> ?::vector) AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND knowledge_base = ?
+                            ORDER BY embedding <=> ?::vector
+                            LIMIT ?
+                        """,
                 ps -> {
                     ps.setObject(1, vector);
                     ps.setString(2, tenantId);
@@ -57,16 +57,16 @@ public class PostgresSearchRepository implements SearchRepository {
             String className
     ) {
         return jdbc.query("""
-            SELECT
-                path,
-                content,
-                1.0 AS score
-            FROM code_embeddings
-            WHERE tenant_id = ?
-              AND knowledge_base = ?
-              AND path LIKE '%' || ? || '.java'
-            LIMIT 1
-        """,
+                            SELECT
+                                path,
+                                content,
+                                1.0 AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND knowledge_base = ?
+                              AND path LIKE '%' || ? || '.java'
+                            LIMIT 1
+                        """,
                 rs -> {
                     if (rs.next()) {
                         return Optional.of(
@@ -84,4 +84,63 @@ public class PostgresSearchRepository implements SearchRepository {
                 className
         );
     }
+
+    @Override
+    public List<SearchResult> findUsagesByClassName(
+            String tenantId,
+            String knowledgeBase,
+            String className
+    ) {
+        return jdbc.query("""
+                            SELECT
+                                path,
+                                content,
+                                1.0 AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND knowledge_base = ?
+                              AND content LIKE '%' || ? || '%'
+                              AND path NOT LIKE '%' || ? || '.java'
+                            ORDER BY path
+                            LIMIT 20
+                        """,
+                (rs, i) -> new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        rs.getDouble("score")
+                ),
+                tenantId,
+                knowledgeBase,
+                className,
+                className
+        );
+    }
+
+    @Override
+    public Optional<SearchResult> findByClassNameGlobal(
+            String tenantId,
+            String className
+    ) {
+        return jdbc.query("""
+                            SELECT path, content,
+                                   1.0 AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND content LIKE ?
+                            LIMIT 1
+                        """,
+                ps -> {
+                    ps.setString(1, tenantId);
+                    ps.setString(2, "%class " + className + "%");
+                },
+                rs -> rs.next()
+                        ? Optional.of(new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        rs.getDouble("score")
+                ))
+                        : Optional.empty()
+        );
+    }
+
 }
