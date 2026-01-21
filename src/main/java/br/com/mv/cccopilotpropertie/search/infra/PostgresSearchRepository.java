@@ -143,4 +143,60 @@ public class PostgresSearchRepository implements SearchRepository {
         );
     }
 
+//    @Override
+//    public Optional<SearchResult> findDtoDefinitionGlobal(String dtoName) {
+//        return jdbc.query("""
+//        SELECT path, content, 1.0 AS score
+//        FROM code_embeddings
+//        WHERE content LIKE ?
+//        ORDER BY
+//            CASE
+//                WHEN path LIKE '%/dto/%' THEN 0
+//                ELSE 1
+//            END
+//        LIMIT 1
+//    """,
+//                ps -> ps.setString(1, "%class " + dtoName + "%"),
+//                rs -> rs.next()
+//                        ? Optional.of(new SearchResult(
+//                        rs.getString("path"),
+//                        rs.getString("content"),
+//                        rs.getDouble("score")
+//                ))
+//                        : Optional.empty()
+//        );
+//    }
+    @Override
+    public Optional<SearchResult> findDtoDefinitionGlobal(String dtoName) {
+
+        String sql = """
+        SELECT
+            path,
+            content,
+            1.0 AS score
+        FROM code_embeddings
+        WHERE
+            path ILIKE ?
+            OR content ILIKE ?
+        ORDER BY path
+        LIMIT 1
+    """;
+
+        List<SearchResult> results = jdbc.query(
+                sql,
+                ps -> {
+                    ps.setString(1, "%/" + dtoName + ".java");
+                    ps.setString(2, "%class " + dtoName + "%");
+                },
+                (rs, i) -> new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        rs.getDouble("score")
+                )
+        );
+
+        return results.stream().findFirst();
+    }
+
+
 }

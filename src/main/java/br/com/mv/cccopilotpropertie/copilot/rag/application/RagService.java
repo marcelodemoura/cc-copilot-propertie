@@ -57,8 +57,7 @@ public class RagService {
             );
         }
 
-
-        // 🧬 herança consciente
+        // 🧬 Herança consciente
         var enrichedDocs = enrichWithInheritance(
                 tenantId,
                 knowledgeBase,
@@ -69,7 +68,6 @@ public class RagService {
         if (isAuditQuestion(question)) {
 
             Optional<String> dtoOpt = extractDtoName(question);
-
             if (dtoOpt.isEmpty()) {
                 return new CopilotAnswer(
                         "Não foi possível identificar o DTO a ser auditado.",
@@ -78,13 +76,13 @@ public class RagService {
                 );
             }
 
-            String dto = dtoOpt.get(); // ✅ AGORA EXISTE
+            String dto = dtoOpt.get();
 
-            boolean dtoExists =
-                    enrichedDocs.stream()
-                            .anyMatch(d -> d.content().contains(dto));
+            // 🌍 Busca global do contrato do DTO
+            Optional<SearchResult> globalDto =
+                    searchRepository.findDtoDefinitionGlobal(dto);
 
-            if (!dtoExists) {
+            if (globalDto.isEmpty()) {
                 return new CopilotAnswer(
                         "O DTO " + dto + " não foi encontrado em nenhum projeto indexado.",
                         List.of(),
@@ -101,7 +99,6 @@ public class RagService {
             );
         }
 
-
         // 🔗 MODO NORMAL (uso / explicação)
         UsageContext usageContext = enrichWithUsages(
                 tenantId,
@@ -110,7 +107,7 @@ public class RagService {
                 enrichedDocs
         );
 
-        var response = answer.ask(usageContext.prompt());
+        String response = answer.ask(usageContext.prompt());
 
         List<CopilotAnswer.Source> sources =
                 usageContext.usages().isEmpty()
@@ -127,9 +124,11 @@ public class RagService {
                 confidence
         );
     }
+
     // =========================================================
     // 🧬 HERANÇA
     // =========================================================
+
     private List<SearchResult> enrichWithInheritance(
             String tenantId,
             String knowledgeBase,
@@ -222,6 +221,9 @@ public class RagService {
             List<SearchResult> docs,
             double confidence
     ) {
+        SearchResult dtoDef = docs.get(0);
+        String dtoContent = dtoDef.content();
+
         List<SearchResult> usages =
                 searchRepository.findUsagesByClassName(
                                 tenantId,
@@ -234,18 +236,42 @@ public class RagService {
         StringBuilder audit = new StringBuilder();
         audit.append("Auditoria do uso do ").append(dto).append(":\n\n");
 
-        if (usages.isEmpty()) {
-            audit.append("⚠️ Nenhum uso explícito encontrado.\n");
+        // 1️⃣ Campos obrigatórios
+        audit.append("Campos obrigatórios definidos:\n");
+        if (dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank")) {
+            audit.append("- O DTO possui campos obrigatórios definidos por anotações.\n");
         } else {
-            usages.forEach(u ->
-                    audit.append("- ")
-                            .append(classifyUsage(u.path()))
-                            .append(": ")
-                            .append(u.path())
-                            .append("\n")
-                            .append("  ⚠️ Não há evidência clara de validação.\n")
-            );
+            audit.append("- Não há campos obrigatórios definidos diretamente no DTO.\n");
         }
+
+        // 2️⃣ Herança
+        audit.append("\nHerança:\n");
+        if (dtoContent.contains("extends ")) {
+            audit.append("- O DTO estende outra classe.\n");
+            audit.append("- Não há evidência de campos obrigatórios anotados na superclasse.\n");
+        } else {
+            audit.append("- O DTO não possui herança.\n");
+        }
+
+        // 3️⃣ Uso
+        audit.append("\nAnálise de uso:\n");
+        if (usages.isEmpty()) {
+            audit.append("⚠️ Nenhum uso explícito do DTO foi encontrado.\n");
+        } else {
+            usages.forEach(u ->    {
+                audit.append("- ")
+                        .append(classifyUsage(u.path()))
+                        .append(": ")
+                        .append(u.path())
+                        .append("\n")
+                        .append("  ⚠️ Não há evidência clara de validação ou preenchimento explícito.\n");
+            });
+        }
+
+        // 4️⃣ Conclusão
+        audit.append("\nConclusão:\n");
+        audit.append("⚠️ Existe risco potencial de violação de contrato ")
+                .append("caso o DTO seja utilizado sem validação explícita.\n");
 
         return new CopilotAnswer(
                 audit.toString(),
@@ -267,7 +293,6 @@ public class RagService {
 
     private boolean isAuditQuestion(String q) {
         q = q.toLowerCase();
-
         return q.contains("risco")
                 || q.contains("riscos")
                 || q.contains("respeita")
@@ -301,6 +326,4 @@ public class RagService {
             String prompt,
             List<SearchResult> usages
     ) {}
-
-
 }

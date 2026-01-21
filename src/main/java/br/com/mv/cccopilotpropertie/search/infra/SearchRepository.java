@@ -31,5 +31,8 @@ public interface SearchRepository {
             String className
     );
 
+    Optional<SearchResult> findDtoDefinitionGlobal(String dtoName);
+
+
 
 }
