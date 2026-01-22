@@ -23,7 +23,6 @@ public class PostgresSearchRepository implements SearchRepository {
             float[] vector,
             int limit
     ) {
-
         return jdbc.query("""
                             SELECT
                                 path,
@@ -49,7 +48,6 @@ public class PostgresSearchRepository implements SearchRepository {
                 ));
     }
 
-    // 🔴 NOVO — usado pela herança consciente
     @Override
     public Optional<SearchResult> findByClassName(
             String tenantId,
@@ -57,81 +55,17 @@ public class PostgresSearchRepository implements SearchRepository {
             String className
     ) {
         return jdbc.query("""
-                            SELECT
-                                path,
-                                content,
-                                1.0 AS score
+                            SELECT path, content, 1.0 AS score
                             FROM code_embeddings
                             WHERE tenant_id = ?
                               AND knowledge_base = ?
-                              AND path LIKE '%' || ? || '.java'
-                            LIMIT 1
-                        """,
-                rs -> {
-                    if (rs.next()) {
-                        return Optional.of(
-                                new SearchResult(
-                                        rs.getString("path"),
-                                        rs.getString("content"),
-                                        rs.getDouble("score")
-                                )
-                        );
-                    }
-                    return Optional.empty();
-                },
-                tenantId,
-                knowledgeBase,
-                className
-        );
-    }
-
-    @Override
-    public List<SearchResult> findUsagesByClassName(
-            String tenantId,
-            String knowledgeBase,
-            String className
-    ) {
-        return jdbc.query("""
-                            SELECT
-                                path,
-                                content,
-                                1.0 AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND knowledge_base = ?
-                              AND content LIKE '%' || ? || '%'
-                              AND path NOT LIKE '%' || ? || '.java'
-                            ORDER BY path
-                            LIMIT 20
-                        """,
-                (rs, i) -> new SearchResult(
-                        rs.getString("path"),
-                        rs.getString("content"),
-                        rs.getDouble("score")
-                ),
-                tenantId,
-                knowledgeBase,
-                className,
-                className
-        );
-    }
-
-    @Override
-    public Optional<SearchResult> findByClassNameGlobal(
-            String tenantId,
-            String className
-    ) {
-        return jdbc.query("""
-                            SELECT path, content,
-                                   1.0 AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND content LIKE ?
+                              AND path ILIKE ?
                             LIMIT 1
                         """,
                 ps -> {
                     ps.setString(1, tenantId);
-                    ps.setString(2, "%class " + className + "%");
+                    ps.setString(2, knowledgeBase);
+                    ps.setString(3, "%/" + className + ".java");
                 },
                 rs -> rs.next()
                         ? Optional.of(new SearchResult(
@@ -143,60 +77,90 @@ public class PostgresSearchRepository implements SearchRepository {
         );
     }
 
-//    @Override
-//    public Optional<SearchResult> findDtoDefinitionGlobal(String dtoName) {
-//        return jdbc.query("""
-//        SELECT path, content, 1.0 AS score
-//        FROM code_embeddings
-//        WHERE content LIKE ?
-//        ORDER BY
-//            CASE
-//                WHEN path LIKE '%/dto/%' THEN 0
-//                ELSE 1
-//            END
-//        LIMIT 1
-//    """,
-//                ps -> ps.setString(1, "%class " + dtoName + "%"),
-//                rs -> rs.next()
-//                        ? Optional.of(new SearchResult(
-//                        rs.getString("path"),
-//                        rs.getString("content"),
-//                        rs.getDouble("score")
-//                ))
-//                        : Optional.empty()
-//        );
-//    }
     @Override
-    public Optional<SearchResult> findDtoDefinitionGlobal(String dtoName) {
-
-        String sql = """
-        SELECT
-            path,
-            content,
-            1.0 AS score
-        FROM code_embeddings
-        WHERE
-            path ILIKE ?
-            OR content ILIKE ?
-        ORDER BY path
-        LIMIT 1
-    """;
-
-        List<SearchResult> results = jdbc.query(
-                sql,
-                ps -> {
-                    ps.setString(1, "%/" + dtoName + ".java");
-                    ps.setString(2, "%class " + dtoName + "%");
-                },
+    public List<SearchResult> findUsagesByClassName(
+            String tenantId,
+            String knowledgeBase,
+            String className
+    ) {
+        return jdbc.query("""
+                            SELECT DISTINCT ON (path)
+                                                        path,
+                                                        content,
+                                                        1.0 AS score
+                                                    FROM code_embeddings
+                                                    WHERE tenant_id = ?
+                                                      AND knowledge_base = ?
+                                                      AND content ILIKE ?
+                                                      AND path NOT ILIKE ?
+                                                    ORDER BY path
+                                                    LIMIT 50
+                        
+                        """,
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
                         rs.getString("content"),
                         rs.getDouble("score")
-                )
+                ),
+                tenantId,
+                knowledgeBase,
+                "%" + className + "%",
+                "%/" + className + ".java"
         );
-
-        return results.stream().findFirst();
     }
 
+    @Override
+    public Optional<SearchResult> findDtoDefinitionGlobal(
+            String tenantId,
+            String dtoName
+    ) {
+        return jdbc.query("""
+                            SELECT path, content, 1.0 AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND (path ILIKE ? OR content ILIKE ?)
+                            LIMIT 1
+                        """,
+                ps -> {
+                    ps.setString(1, tenantId);
+                    ps.setString(2, "%/" + dtoName + ".java");
+                    ps.setString(3, "%class " + dtoName + "%");
+                },
+                rs -> rs.next()
+                        ? Optional.of(new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        rs.getDouble("score")
+                ))
+                        : Optional.empty()
+        );
+    }
 
+    @Override
+    public List<SearchResult> findUsagesInOtherKnowledgeBases(
+            String tenantId,
+            String excludeKnowledgeBase,
+            String dtoName
+    ) {
+        return jdbc.query("""
+                            SELECT path, content, 1.0 AS score
+                            FROM code_embeddings
+                            WHERE tenant_id = ?
+                              AND knowledge_base <> ?
+                              AND content ILIKE ?
+                              AND path NOT ILIKE ?
+                            ORDER BY path
+                            LIMIT 50
+                        """,
+                (rs, i) -> new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        rs.getDouble("score")
+                ),
+                tenantId,
+                excludeKnowledgeBase,
+                "%" + dtoName + "%",
+                "%/" + dtoName + ".java"
+        );
+    }
 }

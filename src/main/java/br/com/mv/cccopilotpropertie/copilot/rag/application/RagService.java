@@ -37,10 +37,6 @@ public class RagService {
         this.answer = answer;
     }
 
-    // =========================================================
-    // 🚀 ENTRYPOINT
-    // =========================================================
-
     public CopilotAnswer ask(
             String tenantId,
             String knowledgeBase,
@@ -49,25 +45,25 @@ public class RagService {
         var docs = search.search(tenantId, knowledgeBase, question, 12);
         double confidence = calculateConfidence(docs);
 
-        if (docs.isEmpty() || confidence < 0.15) {
+        if (docs.isEmpty()) {
             return new CopilotAnswer(
                     "Não encontrei informações suficientes na base de conhecimento.",
                     List.of(),
-                    confidence
+                    0.0
             );
         }
 
-        // 🧬 Herança consciente
         var enrichedDocs = enrichWithInheritance(
                 tenantId,
                 knowledgeBase,
                 docs
         );
 
-        // 🚨 MODO AUDITOR
+        // 🚨 PASSO 1 — AUDITORIA INTER-PROJETOS
         if (isAuditQuestion(question)) {
 
             Optional<String> dtoOpt = extractDtoName(question);
+
             if (dtoOpt.isEmpty()) {
                 return new CopilotAnswer(
                         "Não foi possível identificar o DTO a ser auditado.",
@@ -78,9 +74,8 @@ public class RagService {
 
             String dto = dtoOpt.get();
 
-            // 🌍 Busca global do contrato do DTO
             Optional<SearchResult> globalDto =
-                    searchRepository.findDtoDefinitionGlobal(dto);
+                    searchRepository.findDtoDefinitionGlobal(tenantId, dto);
 
             if (globalDto.isEmpty()) {
                 return new CopilotAnswer(
@@ -99,7 +94,7 @@ public class RagService {
             );
         }
 
-        // 🔗 MODO NORMAL (uso / explicação)
+        // 🔗 MODO NORMAL
         UsageContext usageContext = enrichWithUsages(
                 tenantId,
                 knowledgeBase,
@@ -118,17 +113,12 @@ public class RagService {
                         .map(u -> new CopilotAnswer.Source(u.path(), u.score()))
                         .toList();
 
-        return new CopilotAnswer(
-                response,
-                sources,
-                confidence
-        );
+        return new CopilotAnswer(response, sources, confidence);
     }
 
     // =========================================================
     // 🧬 HERANÇA
     // =========================================================
-
     private List<SearchResult> enrichWithInheritance(
             String tenantId,
             String knowledgeBase,
@@ -136,9 +126,7 @@ public class RagService {
     ) {
         SearchResult child = docs.get(0);
 
-        Optional<String> parent =
-                extractParentClass(child.content());
-
+        Optional<String> parent = extractParentClass(child.content());
         if (parent.isEmpty()) return docs;
 
         Optional<SearchResult> parentDoc =
@@ -164,7 +152,6 @@ public class RagService {
     // =========================================================
     // 🔗 USO NORMAL
     // =========================================================
-
     private UsageContext enrichWithUsages(
             String tenantId,
             String knowledgeBase,
@@ -172,7 +159,6 @@ public class RagService {
             List<SearchResult> docs
     ) {
         Optional<String> dtoOpt = extractDtoName(question);
-
         if (dtoOpt.isEmpty()) {
             return new UsageContext(
                     promptAssembler.build(question, docs),
@@ -184,12 +170,10 @@ public class RagService {
 
         List<SearchResult> usages =
                 searchRepository.findUsagesByClassName(
-                                tenantId,
-                                knowledgeBase,
-                                dto
-                        ).stream()
-                        .filter(u -> !u.path().contains("InfoDTO"))
-                        .toList();
+                        tenantId,
+                        knowledgeBase,
+                        dto
+                );
 
         StringBuilder ctx = new StringBuilder();
         ctx.append("USO DO DTO ").append(dto).append(":\n");
@@ -213,7 +197,6 @@ public class RagService {
     // =========================================================
     // 🚨 AUDITORIA
     // =========================================================
-
     private CopilotAnswer auditDtoUsage(
             String tenantId,
             String knowledgeBase,
@@ -221,57 +204,28 @@ public class RagService {
             List<SearchResult> docs,
             double confidence
     ) {
-        SearchResult dtoDef = docs.get(0);
-        String dtoContent = dtoDef.content();
-
         List<SearchResult> usages =
                 searchRepository.findUsagesByClassName(
-                                tenantId,
-                                knowledgeBase,
-                                dto
-                        ).stream()
-                        .filter(u -> !u.path().contains("InfoDTO"))
-                        .toList();
+                        tenantId,
+                        knowledgeBase,
+                        dto
+                );
 
         StringBuilder audit = new StringBuilder();
         audit.append("Auditoria do uso do ").append(dto).append(":\n\n");
 
-        // 1️⃣ Campos obrigatórios
-        audit.append("Campos obrigatórios definidos:\n");
-        if (dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank")) {
-            audit.append("- O DTO possui campos obrigatórios definidos por anotações.\n");
-        } else {
-            audit.append("- Não há campos obrigatórios definidos diretamente no DTO.\n");
-        }
-
-        // 2️⃣ Herança
-        audit.append("\nHerança:\n");
-        if (dtoContent.contains("extends ")) {
-            audit.append("- O DTO estende outra classe.\n");
-            audit.append("- Não há evidência de campos obrigatórios anotados na superclasse.\n");
-        } else {
-            audit.append("- O DTO não possui herança.\n");
-        }
-
-        // 3️⃣ Uso
-        audit.append("\nAnálise de uso:\n");
         if (usages.isEmpty()) {
-            audit.append("⚠️ Nenhum uso explícito do DTO foi encontrado.\n");
+            audit.append("⚠️ Nenhum uso explícito encontrado.\n");
         } else {
-            usages.forEach(u ->    {
-                audit.append("- ")
-                        .append(classifyUsage(u.path()))
-                        .append(": ")
-                        .append(u.path())
-                        .append("\n")
-                        .append("  ⚠️ Não há evidência clara de validação ou preenchimento explícito.\n");
-            });
+            usages.forEach(u ->
+                    audit.append("- ")
+                            .append(classifyUsage(u.path()))
+                            .append(": ")
+                            .append(u.path())
+                            .append("\n")
+                            .append("  ⚠️ Não há evidência clara de validação.\n")
+            );
         }
-
-        // 4️⃣ Conclusão
-        audit.append("\nConclusão:\n");
-        audit.append("⚠️ Existe risco potencial de violação de contrato ")
-                .append("caso o DTO seja utilizado sem validação explícita.\n");
 
         return new CopilotAnswer(
                 audit.toString(),
@@ -285,7 +239,6 @@ public class RagService {
     // =========================================================
     // 🔍 HELPERS
     // =========================================================
-
     private Optional<String> extractDtoName(String question) {
         Matcher m = DTO_PATTERN.matcher(question);
         return m.find() ? Optional.of(m.group(1)) : Optional.empty();
@@ -294,9 +247,7 @@ public class RagService {
     private boolean isAuditQuestion(String q) {
         q = q.toLowerCase();
         return q.contains("risco")
-                || q.contains("riscos")
                 || q.contains("respeita")
-                || q.contains("correto")
                 || q.contains("validado")
                 || q.contains("auditoria");
     }
@@ -317,10 +268,6 @@ public class RagService {
                 .average()
                 .orElse(0.0);
     }
-
-    // =========================================================
-    // 🧱 SUPPORT
-    // =========================================================
 
     private record UsageContext(
             String prompt,

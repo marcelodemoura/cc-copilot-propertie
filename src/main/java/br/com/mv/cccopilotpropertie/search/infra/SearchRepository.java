@@ -26,13 +26,16 @@ public interface SearchRepository {
             String className
     );
 
-    Optional<SearchResult> findByClassNameGlobal(
+    // 🌍 DTO DEFINIÇÃO GLOBAL (INTER-PROJETOS)
+    Optional<SearchResult> findDtoDefinitionGlobal(
             String tenantId,
-            String className
+            String dtoName
     );
 
-    Optional<SearchResult> findDtoDefinitionGlobal(String dtoName);
-
-
-
+    // 🌍 USOS DO DTO EM OUTROS PROJETOS
+    List<SearchResult> findUsagesInOtherKnowledgeBases(
+            String tenantId,
+            String excludeKnowledgeBase,
+            String dtoName
+    );
 }
