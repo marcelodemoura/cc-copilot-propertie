@@ -30,7 +30,8 @@ public class RagService {
     private record ConversationContext(
             String lastDto,
             String lastKnowledgeBase
-    ) {}
+    ) {
+    }
 
     public RagService(
             SearchService search,
@@ -123,21 +124,18 @@ public class RagService {
             Optional<SearchResult> globalDto =
                     searchRepository.findDtoDefinitionGlobal(tenantId, dto);
 
-            if (globalDto.isEmpty()) {
-                return new CopilotAnswer(
-                        "O DTO " + dto + " não foi encontrado em nenhum projeto indexado.",
-                        List.of(),
-                        0.0
-                );
-            }
-
-            return auditDtoUsage(
+            return globalDto.map(searchResult -> auditDtoUsage(
                     tenantId,
                     knowledgeBase,
                     dto,
-                    globalDto.get(),
+                    searchResult,
                     confidence
-            );
+            )).orElseGet(() -> new CopilotAnswer(
+                    "O DTO " + dto + " não foi encontrado em nenhum projeto indexado.",
+                    List.of(),
+                    0.0
+            ));
+
         }
 
         // =====================================================
@@ -259,6 +257,16 @@ public class RagService {
                         knowledgeBase,
                         dto
                 );
+        // =========================
+        // 🌍 Uso inter-projetos
+        // =========================
+        List<SearchResult> externalUsages =
+                searchRepository.findUsagesInOtherKnowledgeBases(
+                        tenantId,
+                        knowledgeBase,
+                        dto
+                );
+
 
         StringBuilder audit = new StringBuilder();
         audit.append("Auditoria do uso do ").append(dto).append(":\n\n");
@@ -292,8 +300,10 @@ public class RagService {
         int usageCount = usages.size();
         boolean hasExplicitValidation = false;
 
+        boolean usedInOtherProjects = !externalUsages.isEmpty();
+
         String risk;
-        if (hasRequiredFields && !hasExplicitValidation && usageCount > 1) {
+        if (hasRequiredFields && !hasExplicitValidation && usedInOtherProjects) {
             risk = "ALTO";
         } else if (hasRequiredFields && usageCount > 0) {
             risk = "MÉDIO";
@@ -305,14 +315,37 @@ public class RagService {
         audit.append("- Nível de risco: ").append(risk).append("\n");
         audit.append("Motivos:\n");
 
+        if (usedInOtherProjects) {
+            audit.append("• DTO utilizado em mais de um projeto (risco inter-projetos)\n");
+        }
+
         if (hasRequiredFields) {
             audit.append("• DTO possui campos obrigatórios\n");
         }
+
         if (!hasExplicitValidation) {
             audit.append("• Não há validação explícita identificada\n");
         }
+
         audit.append("• Quantidade de usos encontrados: ")
                 .append(usageCount).append("\n");
+
+// =========================
+// ✅ RECOMENDAÇÕES
+// =========================
+        audit.append("\nRecomendações:\n");
+
+        if (risk.equals("ALTO")) {
+            audit.append("• Criar DTO específico para cada projeto\n");
+            audit.append("• Garantir validação com @Valid no Controller\n");
+            audit.append("• Evitar uso direto do DTO em mensageria\n");
+            audit.append("• Considerar contrato compartilhado\n");
+        } else if (risk.equals("MÉDIO")) {
+            audit.append("• Revisar validação nos pontos de entrada\n");
+            audit.append("• Criar testes unitários para o DTO\n");
+        } else {
+            audit.append("• Nenhuma ação imediata necessária\n");
+        }
 
         return new CopilotAnswer(
                 audit.toString(),
@@ -322,6 +355,7 @@ public class RagService {
                 confidence
         );
     }
+
 
     // =========================================================
     // 🔍 HELPERS
@@ -372,5 +406,6 @@ public class RagService {
     private record UsageContext(
             String prompt,
             List<SearchResult> usages
-    ) {}
+    ) {
+    }
 }
