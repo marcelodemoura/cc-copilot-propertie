@@ -25,6 +25,13 @@ public class RagService {
     private static final Pattern DTO_PATTERN =
             Pattern.compile("(\\w+DTO)");
 
+    private ConversationContext lastContext;
+
+    private record ConversationContext(
+            String lastDto,
+            String lastKnowledgeBase
+    ) {}
+
     public RagService(
             SearchService search,
             SearchRepository searchRepository,
@@ -37,13 +44,41 @@ public class RagService {
         this.answer = answer;
     }
 
+    // =========================================================
+    // 🚀 ENTRYPOINT
+    // =========================================================
     public CopilotAnswer ask(
             String tenantId,
             String knowledgeBase,
             String question
     ) {
-        var docs = search.search(tenantId, knowledgeBase, question, 12);
-        double confidence = calculateConfidence(docs);
+        double confidence;
+
+        // ===============================
+        // 🧠 PERGUNTAS CANÔNICAS
+        // ===============================
+        if (isCanonicalQuestion(question)) {
+
+            if (lastContext == null) {
+                return new CopilotAnswer(
+                        "Não há contexto anterior para avaliar.",
+                        List.of(),
+                        0.0
+                );
+            }
+
+            String resolvedQuestion =
+                    "Existe risco no uso do " + lastContext.lastDto() + "?";
+
+            return ask(
+                    tenantId,
+                    lastContext.lastKnowledgeBase(),
+                    resolvedQuestion
+            );
+        }
+
+        List<SearchResult> docs =
+                search.search(tenantId, knowledgeBase, question, 12);
 
         if (docs.isEmpty()) {
             return new CopilotAnswer(
@@ -53,16 +88,26 @@ public class RagService {
             );
         }
 
-        var enrichedDocs = enrichWithInheritance(
-                tenantId,
-                knowledgeBase,
-                docs
+        confidence = calculateConfidence(docs);
+
+        // ===============================
+        // 🔎 IDENTIFICA DTO E GUARDA CONTEXTO
+        // ===============================
+        Optional<String> dtoOpt = extractDtoName(question);
+        dtoOpt.ifPresent(d ->
+                lastContext = new ConversationContext(d, knowledgeBase)
         );
 
-        // 🚨 PASSO 1 — AUDITORIA INTER-PROJETOS
-        if (isAuditQuestion(question)) {
+        // ===============================
+        // 🧬 HERANÇA CONSCIENTE
+        // ===============================
+        List<SearchResult> enrichedDocs =
+                enrichWithInheritance(tenantId, knowledgeBase, docs);
 
-            Optional<String> dtoOpt = extractDtoName(question);
+        // =====================================================
+        // 🚨 PASSO 1 + 2 — AUDITORIA + RISCO
+        // =====================================================
+        if (isAuditQuestion(question)) {
 
             if (dtoOpt.isEmpty()) {
                 return new CopilotAnswer(
@@ -74,6 +119,7 @@ public class RagService {
 
             String dto = dtoOpt.get();
 
+            // 🌍 DTO existe globalmente?
             Optional<SearchResult> globalDto =
                     searchRepository.findDtoDefinitionGlobal(tenantId, dto);
 
@@ -89,18 +135,16 @@ public class RagService {
                     tenantId,
                     knowledgeBase,
                     dto,
-                    enrichedDocs,
+                    globalDto.get(),
                     confidence
             );
         }
 
+        // =====================================================
         // 🔗 MODO NORMAL
-        UsageContext usageContext = enrichWithUsages(
-                tenantId,
-                knowledgeBase,
-                question,
-                enrichedDocs
-        );
+        // =====================================================
+        UsageContext usageContext =
+                enrichWithUsages(tenantId, knowledgeBase, question, enrichedDocs);
 
         String response = answer.ask(usageContext.prompt());
 
@@ -126,7 +170,9 @@ public class RagService {
     ) {
         SearchResult child = docs.get(0);
 
-        Optional<String> parent = extractParentClass(child.content());
+        Optional<String> parent =
+                extractParentClass(child.content());
+
         if (parent.isEmpty()) return docs;
 
         Optional<SearchResult> parentDoc =
@@ -159,6 +205,7 @@ public class RagService {
             List<SearchResult> docs
     ) {
         Optional<String> dtoOpt = extractDtoName(question);
+
         if (dtoOpt.isEmpty()) {
             return new UsageContext(
                     promptAssembler.build(question, docs),
@@ -195,15 +242,17 @@ public class RagService {
     }
 
     // =========================================================
-    // 🚨 AUDITORIA
+    // 🚨 AUDITORIA + SCORE DE RISCO
     // =========================================================
     private CopilotAnswer auditDtoUsage(
             String tenantId,
             String knowledgeBase,
             String dto,
-            List<SearchResult> docs,
+            SearchResult globalDto,
             double confidence
     ) {
+        String dtoContent = globalDto.content();
+
         List<SearchResult> usages =
                 searchRepository.findUsagesByClassName(
                         tenantId,
@@ -213,6 +262,18 @@ public class RagService {
 
         StringBuilder audit = new StringBuilder();
         audit.append("Auditoria do uso do ").append(dto).append(":\n\n");
+
+        // 1️⃣ Campos obrigatórios
+        boolean hasRequiredFields =
+                dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank");
+
+        audit.append("Campos obrigatórios:\n");
+        audit.append(hasRequiredFields
+                ? "- Possui campos obrigatórios definidos\n"
+                : "- Não possui campos obrigatórios definidos\n");
+
+        // 2️⃣ Análise de uso
+        audit.append("\nAnálise de uso:\n");
 
         if (usages.isEmpty()) {
             audit.append("⚠️ Nenhum uso explícito encontrado.\n");
@@ -226,6 +287,32 @@ public class RagService {
                             .append("  ⚠️ Não há evidência clara de validação.\n")
             );
         }
+
+        // 3️⃣ Score de risco
+        int usageCount = usages.size();
+        boolean hasExplicitValidation = false;
+
+        String risk;
+        if (hasRequiredFields && !hasExplicitValidation && usageCount > 1) {
+            risk = "ALTO";
+        } else if (hasRequiredFields && usageCount > 0) {
+            risk = "MÉDIO";
+        } else {
+            risk = "BAIXO";
+        }
+
+        audit.append("\nRisco identificado:\n");
+        audit.append("- Nível de risco: ").append(risk).append("\n");
+        audit.append("Motivos:\n");
+
+        if (hasRequiredFields) {
+            audit.append("• DTO possui campos obrigatórios\n");
+        }
+        if (!hasExplicitValidation) {
+            audit.append("• Não há validação explícita identificada\n");
+        }
+        audit.append("• Quantidade de usos encontrados: ")
+                .append(usageCount).append("\n");
 
         return new CopilotAnswer(
                 audit.toString(),
@@ -252,6 +339,16 @@ public class RagService {
                 || q.contains("auditoria");
     }
 
+    private boolean isCanonicalQuestion(String q) {
+        q = q.toLowerCase().trim();
+        return q.equals("isso está correto?")
+                || q.equals("está correto?")
+                || q.equals("isso está certo?")
+                || q.equals("tem risco?")
+                || q.equals("isso tem risco?")
+                || q.equals("existe risco?");
+    }
+
     private String classifyUsage(String path) {
         String p = path.toLowerCase();
         if (p.contains("controller")) return "Controller";
@@ -269,6 +366,9 @@ public class RagService {
                 .orElse(0.0);
     }
 
+    // =========================================================
+    // 🧱 SUPPORT
+    // =========================================================
     private record UsageContext(
             String prompt,
             List<SearchResult> usages
