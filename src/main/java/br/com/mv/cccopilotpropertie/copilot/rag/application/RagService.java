@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @Service
 public class RagService {
@@ -21,8 +22,9 @@ public class RagService {
 
     private static final Pattern EXTENDS_PATTERN =
             Pattern.compile("extends\\s+(\\w+)");
+
     private static final Pattern DTO_PATTERN =
-            Pattern.compile("(\\w+DTO)");
+            Pattern.compile("(\\w+)\\s*DTO", Pattern.CASE_INSENSITIVE);
 
     private ConversationContext lastContext;
 
@@ -126,7 +128,6 @@ public class RagService {
                     0.0,
                     null
             ));
-
         }
 
         // =====================================================
@@ -264,21 +265,45 @@ public class RagService {
                 dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank");
 
         boolean usedInOtherProjects = !externalUsages.isEmpty();
-        boolean hasExplicitValidation = false;
 
-        int usageCount = usages.size();
+        int usageCount = usages.size() + externalUsages.size();
 
-        String risk =
-                hasRequiredFields && usedInOtherProjects && !hasExplicitValidation
-                        ? "ALTO"
-                        : hasRequiredFields && usageCount > 0
-                        ? "MÉDIO"
-                        : "BAIXO";
+        boolean isContractDto = isContractDto(usedInOtherProjects, usages);
+
+        // ⚠️ Validação explícita só é considerada se estiver VISÍVEL no índice
+        boolean hasExplicitValidation =
+                detectExplicitValidation(usages, externalUsages);
+
+        String risk;
+        if (isContractDto && hasRequiredFields && !hasExplicitValidation) {
+            risk = "ALTO";
+        } else if (hasRequiredFields && usageCount > 0) {
+            risk = "MÉDIO";
+        } else {
+            risk = "BAIXO";
+        }
 
         String audit = "Auditoria do uso do " + dto + ":\n\n" +
                 "Risco identificado: " + risk + "\n";
 
+        if (isContractDto) {
+            audit += "• DTO classificado como DTO DE CONTRATO\n";
+        }
+
+        if (hasExplicitValidation) {
+            audit += "• Validação explícita detectada no ponto de uso\n";
+        } else {
+            audit += "• Nenhuma validação explícita detectada no ponto de uso\n";
+        }
+
         List<String> recommendations = getRecommendations(risk);
+
+        if (isContractDto) {
+            recommendations = new ArrayList<>(recommendations);
+            recommendations.add("DTO é usado como contrato entre sistemas");
+            recommendations.add("Considere versionar o DTO (ex: " + dto + "V1)");
+            recommendations.add("Evite reutilizar DTO de contrato como DTO interno");
+        }
 
         DtoAuditResult structured = new DtoAuditResult(
                 dto,
@@ -287,12 +312,24 @@ public class RagService {
                 hasRequiredFields,
                 hasExplicitValidation,
                 usageCount,
-                recommendations
+                recommendations,
+                isContractDto
         );
 
-        List<CopilotAnswer.Source> sources = new ArrayList<>();
-        usages.forEach(u -> sources.add(new CopilotAnswer.Source(u.path(), u.score())));
-        externalUsages.forEach(u -> sources.add(new CopilotAnswer.Source(u.path(), u.score())));
+        Map<String, CopilotAnswer.Source> uniqueSources = new LinkedHashMap<>();
+
+        usages.forEach(u ->
+                uniqueSources.put(u.path(),
+                        new CopilotAnswer.Source(u.path(), u.score()))
+        );
+
+        externalUsages.forEach(u ->
+                uniqueSources.put(u.path(),
+                        new CopilotAnswer.Source(u.path(), u.score()))
+        );
+
+        List<CopilotAnswer.Source> sources =
+                new ArrayList<>(uniqueSources.values());
 
         return new CopilotAnswer(
                 audit,
@@ -322,7 +359,10 @@ public class RagService {
     // =========================================================
     private Optional<String> extractDtoName(String question) {
         Matcher m = DTO_PATTERN.matcher(question);
-        return m.find() ? Optional.of(m.group(1)) : Optional.empty();
+        if (m.find()) {
+            return Optional.of(m.group(1) + "DTO");
+        }
+        return Optional.empty();
     }
 
     private boolean isAuditQuestion(String q) {
@@ -361,4 +401,35 @@ public class RagService {
             String prompt,
             List<SearchResult> usages
     ) {}
+
+    private boolean isContractDto(
+            boolean usedInOtherProjects,
+            List<SearchResult> usages
+    ) {
+        return usedInOtherProjects ||
+                usages.stream().anyMatch(u -> {
+                    String path = u.path().toLowerCase();
+                    return path.contains("/controller")
+                            || path.contains("/queue")
+                            || path.contains("/producer")
+                            || path.contains("/consumer");
+                });
+    }
+
+    /**
+     * Detecta validação explícita SOMENTE se ela estiver visível
+     * no conteúdo indexado. Não faz inferência.
+     */
+    private boolean detectExplicitValidation(
+            List<SearchResult> usages,
+            List<SearchResult> externalUsages
+    ) {
+        return Stream
+                .concat(usages.stream(), externalUsages.stream())
+                .anyMatch(u -> {
+                    String content = u.content();
+                    return content.contains("@Valid")
+                            || content.contains("@Validated");
+                });
+    }
 }
