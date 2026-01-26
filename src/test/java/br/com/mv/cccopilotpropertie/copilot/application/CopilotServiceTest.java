@@ -35,10 +35,13 @@ class CopilotServiceTest {
         String question = "O que é RAG?";
 
         CopilotAnswer expectedAnswer = new CopilotAnswer(
-                "Resposta gerada",
+                "resposta",
                 List.of(),
-                0.85
+                0.9,
+                null,
+                null
         );
+
 
         when(ragService.ask(tenantId, knowledgeBase, question))
                 .thenReturn(expectedAnswer);
