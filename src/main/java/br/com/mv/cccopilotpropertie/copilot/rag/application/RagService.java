@@ -4,6 +4,7 @@ import br.com.mv.cccopilotpropertie.copilot.alert.AlertLevel;
 import br.com.mv.cccopilotpropertie.copilot.alert.AlertResult;
 import br.com.mv.cccopilotpropertie.copilot.alert.AlertService;
 import br.com.mv.cccopilotpropertie.copilot.alert.CiEnforcer;
+import br.com.mv.cccopilotpropertie.copilot.audit.AuditService;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
 import br.com.mv.cccopilotpropertie.copilot.policy.PolicyDecision;
@@ -37,6 +38,9 @@ public class RagService {
 
     private ConversationContext lastContext;
 
+    private final AuditService auditService;
+
+
     private record ConversationContext(String dto, String knowledgeBase) {
     }
 
@@ -46,7 +50,7 @@ public class RagService {
             PromptAssembler promptAssembler,
             AnswerService answer,
             AlertService alertService,
-            CiEnforcer ciEnforcer, PolicyService policyService, ProjectPolicy projectPolicy
+            CiEnforcer ciEnforcer, PolicyService policyService, ProjectPolicy projectPolicy, AuditService auditService
     ) {
         this.search = search;
         this.searchRepository = searchRepository;
@@ -56,6 +60,7 @@ public class RagService {
         this.ciEnforcer = ciEnforcer;
         this.policyService = policyService;
         this.projectPolicy = projectPolicy;
+        this.auditService = auditService;
     }
 
     // =========================================================
@@ -304,6 +309,14 @@ public class RagService {
         List<CopilotAnswer.Source> sources =
                 new ArrayList<>(uniqueSources.values());
 
+        auditService.record(
+                tenantId,
+                knowledgeBase,
+                structured,
+                alert.orElse(null)
+        );
+
+
 // ================================
 // 🔚 RETURN ÚNICO
 // ================================
@@ -314,6 +327,7 @@ public class RagService {
                 structured,
                 alert.orElse(null)
         );
+
 
     }
 
