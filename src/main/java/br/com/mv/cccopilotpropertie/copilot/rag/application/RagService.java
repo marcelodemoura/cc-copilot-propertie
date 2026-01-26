@@ -1,7 +1,14 @@
 package br.com.mv.cccopilotpropertie.copilot.rag.application;
 
+import br.com.mv.cccopilotpropertie.copilot.alert.AlertLevel;
+import br.com.mv.cccopilotpropertie.copilot.alert.AlertResult;
+import br.com.mv.cccopilotpropertie.copilot.alert.AlertService;
+import br.com.mv.cccopilotpropertie.copilot.alert.CiEnforcer;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
+import br.com.mv.cccopilotpropertie.copilot.policy.PolicyDecision;
+import br.com.mv.cccopilotpropertie.copilot.policy.PolicyService;
+import br.com.mv.cccopilotpropertie.copilot.policy.ProjectPolicy;
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
@@ -19,55 +26,53 @@ public class RagService {
     private final SearchRepository searchRepository;
     private final PromptAssembler promptAssembler;
     private final AnswerService answer;
-
+    private final AlertService alertService;
+    private final CiEnforcer ciEnforcer;
+    private final PolicyService policyService;
+    private final ProjectPolicy projectPolicy;
     private static final Pattern EXTENDS_PATTERN =
             Pattern.compile("extends\\s+(\\w+)");
-
     private static final Pattern DTO_PATTERN =
             Pattern.compile("(\\w+)\\s*DTO", Pattern.CASE_INSENSITIVE);
 
     private ConversationContext lastContext;
 
-    private record ConversationContext(
-            String dto,
-            String knowledgeBase
-    ) {}
+    private record ConversationContext(String dto, String knowledgeBase) {
+    }
 
     public RagService(
             SearchService search,
             SearchRepository searchRepository,
             PromptAssembler promptAssembler,
-            AnswerService answer
+            AnswerService answer,
+            AlertService alertService,
+            CiEnforcer ciEnforcer, PolicyService policyService, ProjectPolicy projectPolicy
     ) {
         this.search = search;
         this.searchRepository = searchRepository;
         this.promptAssembler = promptAssembler;
         this.answer = answer;
+        this.alertService = alertService;
+        this.ciEnforcer = ciEnforcer;
+        this.policyService = policyService;
+        this.projectPolicy = projectPolicy;
     }
 
     // =========================================================
     // 🚀 ENTRYPOINT
     // =========================================================
-    public CopilotAnswer ask(
-            String tenantId,
-            String knowledgeBase,
-            String question
-    ) {
+    public CopilotAnswer ask(String tenantId, String knowledgeBase, String question) {
 
-        // ===============================
-        // 🧠 PERGUNTAS CANÔNICAS
-        // ===============================
         if (isCanonicalQuestion(question)) {
-
             if (lastContext == null) {
                 return new CopilotAnswer(
                         "Não há contexto anterior para avaliar.",
                         List.of(),
                         0.0,
+                        null,
                         null
                 );
             }
-
             return ask(
                     tenantId,
                     lastContext.knowledgeBase(),
@@ -83,6 +88,7 @@ public class RagService {
                     "Não encontrei informações suficientes na base de conhecimento.",
                     List.of(),
                     0.0,
+                    null,
                     null
             );
         }
@@ -107,27 +113,29 @@ public class RagService {
                         "Não foi possível identificar o DTO a ser auditado.",
                         List.of(),
                         confidence,
+                        null,
                         null
                 );
             }
 
             String dto = dtoOpt.get();
 
-            Optional<SearchResult> globalDto =
-                    searchRepository.findDtoDefinitionGlobal(tenantId, dto);
-
-            return globalDto.map(searchResult -> auditDtoUsage(
-                    tenantId,
-                    knowledgeBase,
-                    dto,
-                    searchResult,
-                    confidence
-            )).orElseGet(() -> new CopilotAnswer(
-                    "O DTO " + dto + " não foi encontrado em nenhum projeto indexado.",
-                    List.of(),
-                    0.0,
-                    null
-            ));
+            return searchRepository
+                    .findDtoDefinitionGlobal(tenantId, dto)
+                    .map(d -> auditDtoUsage(
+                            tenantId,
+                            knowledgeBase,
+                            dto,
+                            d,
+                            confidence
+                    ))
+                    .orElseGet(() -> new CopilotAnswer(
+                            "O DTO " + dto + " não foi encontrado em nenhum projeto indexado.",
+                            List.of(),
+                            0.0,
+                            null,
+                            null
+                    ));
         }
 
         // =====================================================
@@ -151,46 +159,255 @@ public class RagService {
                 response,
                 sources,
                 confidence,
+                null,
                 null
         );
     }
 
     // =========================================================
-    // 🧬 HERANÇA
+    // 🚨 AUDITORIA + SCORE + METADATA + CI
     // =========================================================
+    private CopilotAnswer auditDtoUsage(
+            String tenantId,
+            String knowledgeBase,
+            String dto,
+            SearchResult globalDto,
+            double confidence
+    ) {
+
+        String dtoContent = globalDto.content();
+
+        List<SearchResult> usages =
+                searchRepository.findUsagesByClassName(
+                        tenantId, knowledgeBase, dto);
+
+        List<SearchResult> externalUsages =
+                searchRepository.findUsagesInOtherKnowledgeBases(
+                        tenantId, knowledgeBase, dto);
+
+        boolean hasRequiredFields =
+                dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank");
+
+        boolean usedInOtherProjects = !externalUsages.isEmpty();
+
+        // 🔖 METADATA EXPLÍCITA
+        boolean explicitlyContract = dtoContent.contains("@ContractDto");
+        boolean explicitlyInternal = dtoContent.contains("@InternalDto");
+
+        boolean isContractDto;
+        if (explicitlyContract) {
+            isContractDto = true;
+        } else if (explicitlyInternal) {
+            isContractDto = false;
+        } else {
+            isContractDto = inferContractDto(usedInOtherProjects, usages);
+        }
+
+        boolean hasExplicitValidation =
+                detectExplicitValidation(usages, externalUsages);
+
+        int usageCount = usages.size() + externalUsages.size();
+
+        // ⚠️ Regra forte: @InternalDto vazando = ALTO
+        String risk;
+        if (explicitlyInternal && usedInOtherProjects) {
+            risk = "ALTO";
+        } else if (isContractDto && hasRequiredFields && !hasExplicitValidation) {
+            risk = "ALTO";
+        } else if (hasRequiredFields && usageCount > 0) {
+            risk = "MÉDIO";
+        } else {
+            risk = "BAIXO";
+        }
+
+        String audit = "Auditoria do uso do " + dto + ":\n\n" +
+                "Risco identificado: " + risk + "\n";
+
+        if (explicitlyContract) {
+            audit += "• DTO marcado explicitamente como CONTRATO (@ContractDto)\n";
+        }
+        if (explicitlyInternal) {
+            audit += "• DTO marcado explicitamente como INTERNO (@InternalDto)\n";
+        }
+        if (!explicitlyContract && !explicitlyInternal && isContractDto) {
+            audit += "• DTO classificado como DTO DE CONTRATO (inferência)\n";
+        }
+
+        audit += hasExplicitValidation
+                ? "• Validação explícita detectada no ponto de uso\n"
+                : "• Nenhuma validação explícita detectada no ponto de uso\n";
+
+        List<String> recommendations = new ArrayList<>(getRecommendations(risk));
+
+        if (isContractDto) {
+            recommendations.add("DTO é usado como contrato entre sistemas");
+            recommendations.add("Considere versionar o DTO (ex: " + dto + "V1)");
+        }
+
+        if (explicitlyInternal && usedInOtherProjects) {
+            recommendations.add("DTO marcado como interno está vazando entre sistemas");
+        }
+
+        DtoAuditResult structured = new DtoAuditResult(
+                dto,
+                risk,
+                usedInOtherProjects,
+                hasRequiredFields,
+                hasExplicitValidation,
+                usageCount,
+                recommendations,
+                isContractDto
+        );
+
+ 
+// ================================
+// 🧭 POLICY
+// ================================
+        PolicyDecision decision =
+                policyService.evaluate(
+                        knowledgeBase,
+                        structured,
+                        projectPolicy
+                );
+
+        Optional<AlertResult> alert;
+
+// Violação de policy gera alerta crítico
+        if (!decision.allowed()) {
+            alert = Optional.of(new AlertResult(
+                    AlertLevel.CRITICAL,
+                    "Violação de política do projeto",
+                    decision.reason()
+            ));
+        } else {
+            alert = alertService.evaluate(structured);
+        }
+
+// ================================
+// 🚨 CI ENFORCER
+// ================================
+        alert.ifPresent(ciEnforcer::enforce);
+
+// ================================
+// 🔗 SOURCES
+// ================================
+        Map<String, CopilotAnswer.Source> uniqueSources = new LinkedHashMap<>();
+
+        Stream.concat(usages.stream(), externalUsages.stream())
+                .forEach(u ->
+                        uniqueSources.put(
+                                u.path(),
+                                new CopilotAnswer.Source(u.path(), u.score())
+                        )
+                );
+
+        List<CopilotAnswer.Source> sources =
+                new ArrayList<>(uniqueSources.values());
+
+// ================================
+// 🔚 RETURN ÚNICO
+// ================================
+        return new CopilotAnswer(
+                audit,
+                sources,
+                confidence,
+                structured,
+                alert.orElse(null)
+        );
+
+    }
+
+    // =========================================================
+    // 🔍 HELPERS
+    // =========================================================
+    private Optional<String> extractDtoName(String question) {
+        Matcher m = DTO_PATTERN.matcher(question);
+        return m.find() ? Optional.of(m.group(1) + "DTO") : Optional.empty();
+    }
+
+    private boolean isAuditQuestion(String q) {
+        q = q.toLowerCase();
+        return q.contains("risco")
+                || q.contains("respeita")
+                || q.contains("validado")
+                || q.contains("auditoria");
+    }
+
+    private boolean isCanonicalQuestion(String q) {
+        q = q.toLowerCase().trim();
+        return q.equals("isso está correto?")
+                || q.equals("tem risco?")
+                || q.equals("existe risco?");
+    }
+
+    private boolean inferContractDto(boolean usedInOtherProjects, List<SearchResult> usages) {
+        return usedInOtherProjects ||
+                usages.stream().anyMatch(u -> {
+                    String p = u.path().toLowerCase();
+                    return p.contains("/controller")
+                            || p.contains("/queue")
+                            || p.contains("/producer")
+                            || p.contains("/consumer");
+                });
+    }
+
+    private boolean detectExplicitValidation(
+            List<SearchResult> usages,
+            List<SearchResult> externalUsages
+    ) {
+        return Stream.concat(usages.stream(), externalUsages.stream())
+                .anyMatch(u -> {
+                    String c = u.content();
+                    return c.contains("@Valid") || c.contains("@Validated");
+                });
+    }
+
+    private List<String> getRecommendations(String risk) {
+        return switch (risk) {
+            case "ALTO" -> List.of(
+                    "Criar DTO específico por projeto",
+                    "Garantir validação com @Valid",
+                    "Evitar uso direto em mensageria"
+            );
+            case "MÉDIO" -> List.of(
+                    "Revisar validações",
+                    "Criar testes unitários"
+            );
+            default -> List.of("Nenhuma ação imediata necessária");
+        };
+    }
+
+    private double calculateConfidence(List<SearchResult> docs) {
+        return docs.stream()
+                .limit(3)
+                .mapToDouble(SearchResult::score)
+                .average()
+                .orElse(0.0);
+    }
+
     private List<SearchResult> enrichWithInheritance(
             String tenantId,
             String knowledgeBase,
             List<SearchResult> docs
     ) {
+        if (docs.isEmpty()) return docs;
+
         SearchResult child = docs.get(0);
+        Matcher matcher = EXTENDS_PATTERN.matcher(child.content());
 
-        Optional<String> parent = extractParentClass(child.content());
-        if (parent.isEmpty()) return docs;
+        if (!matcher.find()) return docs;
 
-        Optional<SearchResult> parentDoc =
-                searchRepository.findByClassName(
-                        tenantId,
-                        knowledgeBase,
-                        parent.get()
-                );
-
-        if (parentDoc.isEmpty()) return docs;
-
-        List<SearchResult> enriched = new ArrayList<>();
-        enriched.add(parentDoc.get());
-        enriched.addAll(docs);
-        return enriched;
+        return searchRepository
+                .findByClassName(tenantId, knowledgeBase, matcher.group(1))
+                .map(parent -> {
+                    List<SearchResult> enriched = new ArrayList<>();
+                    enriched.add(parent);
+                    enriched.addAll(docs);
+                    return enriched;
+                })
+                .orElse(docs);
     }
 
-    private Optional<String> extractParentClass(String code) {
-        Matcher m = EXTENDS_PATTERN.matcher(code);
-        return m.find() ? Optional.of(m.group(1)) : Optional.empty();
-    }
-
-    // =========================================================
-    // 🔗 USO NORMAL
-    // =========================================================
     private UsageContext enrichWithUsages(
             String tenantId,
             String knowledgeBase,
@@ -234,202 +451,17 @@ public class RagService {
         );
     }
 
-    // =========================================================
-    // 🚨 AUDITORIA + SCORE
-    // =========================================================
-    private CopilotAnswer auditDtoUsage(
-            String tenantId,
-            String knowledgeBase,
-            String dto,
-            SearchResult globalDto,
-            double confidence
-    ) {
-
-        String dtoContent = globalDto.content();
-
-        List<SearchResult> usages =
-                searchRepository.findUsagesByClassName(
-                        tenantId,
-                        knowledgeBase,
-                        dto
-                );
-
-        List<SearchResult> externalUsages =
-                searchRepository.findUsagesInOtherKnowledgeBases(
-                        tenantId,
-                        knowledgeBase,
-                        dto
-                );
-
-        boolean hasRequiredFields =
-                dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank");
-
-        boolean usedInOtherProjects = !externalUsages.isEmpty();
-
-        int usageCount = usages.size() + externalUsages.size();
-
-        boolean isContractDto = isContractDto(usedInOtherProjects, usages);
-
-        // ⚠️ Validação explícita só é considerada se estiver VISÍVEL no índice
-        boolean hasExplicitValidation =
-                detectExplicitValidation(usages, externalUsages);
-
-        String risk;
-        if (isContractDto && hasRequiredFields && !hasExplicitValidation) {
-            risk = "ALTO";
-        } else if (hasRequiredFields && usageCount > 0) {
-            risk = "MÉDIO";
-        } else {
-            risk = "BAIXO";
-        }
-
-        String audit = "Auditoria do uso do " + dto + ":\n\n" +
-                "Risco identificado: " + risk + "\n";
-
-        if (isContractDto) {
-            audit += "• DTO classificado como DTO DE CONTRATO\n";
-        }
-
-        if (hasExplicitValidation) {
-            audit += "• Validação explícita detectada no ponto de uso\n";
-        } else {
-            audit += "• Nenhuma validação explícita detectada no ponto de uso\n";
-        }
-
-        List<String> recommendations = getRecommendations(risk);
-
-        if (isContractDto) {
-            recommendations = new ArrayList<>(recommendations);
-            recommendations.add("DTO é usado como contrato entre sistemas");
-            recommendations.add("Considere versionar o DTO (ex: " + dto + "V1)");
-            recommendations.add("Evite reutilizar DTO de contrato como DTO interno");
-        }
-
-        DtoAuditResult structured = new DtoAuditResult(
-                dto,
-                risk,
-                usedInOtherProjects,
-                hasRequiredFields,
-                hasExplicitValidation,
-                usageCount,
-                recommendations,
-                isContractDto
-        );
-
-        Map<String, CopilotAnswer.Source> uniqueSources = new LinkedHashMap<>();
-
-        usages.forEach(u ->
-                uniqueSources.put(u.path(),
-                        new CopilotAnswer.Source(u.path(), u.score()))
-        );
-
-        externalUsages.forEach(u ->
-                uniqueSources.put(u.path(),
-                        new CopilotAnswer.Source(u.path(), u.score()))
-        );
-
-        List<CopilotAnswer.Source> sources =
-                new ArrayList<>(uniqueSources.values());
-
-        return new CopilotAnswer(
-                audit,
-                sources,
-                confidence,
-                structured
-        );
-    }
-
-    private List<String> getRecommendations(String risk) {
-        return switch (risk) {
-            case "ALTO" -> List.of(
-                    "Criar DTO específico por projeto",
-                    "Garantir validação com @Valid",
-                    "Evitar uso direto em mensageria"
-            );
-            case "MÉDIO" -> List.of(
-                    "Revisar validações",
-                    "Criar testes unitários"
-            );
-            default -> List.of("Nenhuma ação imediata necessária");
-        };
-    }
-
-    // =========================================================
-    // 🔍 HELPERS
-    // =========================================================
-    private Optional<String> extractDtoName(String question) {
-        Matcher m = DTO_PATTERN.matcher(question);
-        if (m.find()) {
-            return Optional.of(m.group(1) + "DTO");
-        }
-        return Optional.empty();
-    }
-
-    private boolean isAuditQuestion(String q) {
-        q = q.toLowerCase();
-        return q.contains("risco")
-                || q.contains("respeita")
-                || q.contains("validado")
-                || q.contains("auditoria");
-    }
-
-    private boolean isCanonicalQuestion(String q) {
-        q = q.toLowerCase().trim();
-        return q.equals("isso está correto?")
-                || q.equals("tem risco?")
-                || q.equals("existe risco?");
-    }
-
     private String classifyUsage(String path) {
         String p = path.toLowerCase();
         if (p.contains("controller")) return "Controller";
         if (p.contains("service")) return "Service";
         if (p.contains("queue")) return "Mensageria";
+        if (p.contains("producer")) return "Producer";
+        if (p.contains("consumer")) return "Consumer";
         if (p.contains("/dto/")) return "DTO dependente";
         return "Outro";
     }
 
-    private double calculateConfidence(List<SearchResult> docs) {
-        return docs.stream()
-                .limit(3)
-                .mapToDouble(SearchResult::score)
-                .average()
-                .orElse(0.0);
-    }
-
-    private record UsageContext(
-            String prompt,
-            List<SearchResult> usages
-    ) {}
-
-    private boolean isContractDto(
-            boolean usedInOtherProjects,
-            List<SearchResult> usages
-    ) {
-        return usedInOtherProjects ||
-                usages.stream().anyMatch(u -> {
-                    String path = u.path().toLowerCase();
-                    return path.contains("/controller")
-                            || path.contains("/queue")
-                            || path.contains("/producer")
-                            || path.contains("/consumer");
-                });
-    }
-
-    /**
-     * Detecta validação explícita SOMENTE se ela estiver visível
-     * no conteúdo indexado. Não faz inferência.
-     */
-    private boolean detectExplicitValidation(
-            List<SearchResult> usages,
-            List<SearchResult> externalUsages
-    ) {
-        return Stream
-                .concat(usages.stream(), externalUsages.stream())
-                .anyMatch(u -> {
-                    String content = u.content();
-                    return content.contains("@Valid")
-                            || content.contains("@Validated");
-                });
+    private record UsageContext(String prompt, List<SearchResult> usages) {
     }
 }
