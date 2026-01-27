@@ -1,6 +1,7 @@
 package br.com.mv.cccopilotpropertie.index;
 
 
+import br.com.mv.cccopilotpropertie.copilot.index.FieldIndexer;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+
 @Service
 public class DefaultIndexService implements IndexService {
 
@@ -16,17 +18,21 @@ public class DefaultIndexService implements IndexService {
     private final ChunkService chunker;
     private final EmbeddingService embedder;
     private final EmbeddingRepository repo;
+    private final FieldIndexer fieldIndex;
+
 
     public DefaultIndexService(
             FileScannerService scanner,
             ChunkService chunker,
             EmbeddingService embedder,
-            EmbeddingRepository repo
+            EmbeddingRepository repo,
+            FieldIndexer fieldIndex
     ) {
         this.scanner = scanner;
         this.chunker = chunker;
         this.embedder = embedder;
         this.repo = repo;
+        this.fieldIndex = fieldIndex;
     }
 
     @Override
@@ -57,6 +63,13 @@ public class DefaultIndexService implements IndexService {
             } catch (Exception e) {
                 continue;
             }
+
+            fieldIndex.indexFile(
+                    tenantId,
+                    knowledgeBase,
+                    file.toString(),
+                    content
+            );
 
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;

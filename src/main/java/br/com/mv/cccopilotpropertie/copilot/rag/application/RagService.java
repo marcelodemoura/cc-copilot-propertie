@@ -109,6 +109,14 @@ public class RagService {
                 enrichWithInheritance(tenantId, knowledgeBase, docs);
 
         // =====================================================
+        // 🧠 ENTENDIMENTO DO PROJETO (PASSO 11)
+        // =====================================================
+        if (isProjectUnderstandingQuestion(question)) {
+            return summarizeProject(question, enrichedDocs, confidence);
+        }
+
+
+        // =====================================================
         // 🚨 AUDITORIA
         // =====================================================
         if (isAuditQuestion(question)) {
@@ -148,6 +156,7 @@ public class RagService {
         // =====================================================
         UsageContext usageContext =
                 enrichWithUsages(tenantId, knowledgeBase, question, enrichedDocs);
+
 
         String response = answer.ask(usageContext.prompt());
 
@@ -264,7 +273,7 @@ public class RagService {
                 isContractDto
         );
 
- 
+
 // ================================
 // 🧭 POLICY
 // ================================
@@ -391,6 +400,7 @@ public class RagService {
         };
     }
 
+
     private double calculateConfidence(List<SearchResult> docs) {
         return docs.stream()
                 .limit(3)
@@ -478,4 +488,54 @@ public class RagService {
 
     private record UsageContext(String prompt, List<SearchResult> usages) {
     }
+
+    private CopilotAnswer summarizeProject(
+            String question,
+            List<SearchResult> docs,
+            double confidence
+    ) {
+
+        String prompt = """
+                Você é um arquiteto de software.
+                
+                Com base APENAS no código fornecido (DTOs, pacotes, nomes de classes e filas),
+                descreva em até 5 linhas:
+                
+                - Qual é o objetivo principal deste projeto
+                - Qual domínio de negócio ele parece atender
+                - Se ele atua como API, backend de domínio ou integração
+                
+                ⚠️ Não invente informações.
+                ⚠️ Caso algo não esteja claro, deixe explícito que é uma inferência.
+                
+                CÓDIGO INDEXADO:
+                """ + promptAssembler.build(question, docs);
+
+        String response = answer.ask(prompt);
+
+        List<CopilotAnswer.Source> sources =
+                docs.stream()
+                        .limit(10)
+                        .map(d -> new CopilotAnswer.Source(d.path(), d.score()))
+                        .toList();
+
+        return new CopilotAnswer(
+                response,
+                sources,
+                confidence,
+                null,
+                null
+        );
+    }
+
+    private boolean isProjectUnderstandingQuestion(String q) {
+        q = q.toLowerCase();
+        return q.contains("o que esse projeto faz")
+                || q.contains("qual o objetivo do projeto")
+                || q.contains("qual a responsabilidade do projeto")
+                || q.contains("qual o dominio do projeto")
+                || q.contains("para que serve esse projeto");
+    }
+
+
 }
