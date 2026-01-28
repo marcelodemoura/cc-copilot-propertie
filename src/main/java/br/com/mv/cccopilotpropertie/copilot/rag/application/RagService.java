@@ -4,7 +4,6 @@ import br.com.mv.cccopilotpropertie.copilot.alert.*;
 import br.com.mv.cccopilotpropertie.copilot.audit.AuditService;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
-import br.com.mv.cccopilotpropertie.copilot.policy.*;
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
@@ -24,7 +23,6 @@ public class RagService {
     private final AlertService alertService;
     private final CiEnforcer ciEnforcer;
     private final AuditService auditService;
-
 
     private static final Pattern DTO_PATTERN =
             Pattern.compile("(\\w+)\\s*DTO", Pattern.CASE_INSENSITIVE);
@@ -55,6 +53,22 @@ public class RagService {
     // =========================================================
     public CopilotAnswer ask(String tenantId, String knowledgeBase, String question) {
 
+        // 🧠 PASSO 11 — entendimento do projeto (NÃO depende da pergunta)
+        if (isProjectUnderstandingQuestion(question)) {
+
+            List<SearchResult> projectDocs =
+                    search.search(tenantId, knowledgeBase, "DTO", 20);
+
+            if (projectDocs.isEmpty()) {
+                return simpleAnswer(
+                        "Não há código suficiente indexado para entender o projeto.",
+                        0.0
+                );
+            }
+
+            return summarizeProject(question, projectDocs, calculateConfidence(projectDocs));
+        }
+
         List<SearchResult> docs =
                 search.search(tenantId, knowledgeBase, question, 12);
 
@@ -63,42 +77,33 @@ public class RagService {
         }
 
         double confidence = calculateConfidence(docs);
+
         List<SearchResult> enrichedDocs =
                 enrichWithInheritance(tenantId, knowledgeBase, docs);
 
-        // 🧠 Projeto
-        if (isProjectUnderstandingQuestion(question)) {
-            return summarizeProject(question, enrichedDocs, confidence);
-        }
-
-// 🚨 Auditoria
+        // 🚨 Auditoria DTO
         if (isAuditQuestion(question)) {
             return handleAudit(tenantId, knowledgeBase, question, confidence);
         }
 
-// 🧹 Remoção / impacto de campo (PRIORIDADE MÁXIMA)
-        if (isFieldRemovalQuestion(question)) {
-            return canRemoveField(question, enrichedDocs, confidence);
-        }
-
-// 🔍 Uso de campo
-        if (isFieldUsageQuestion(question)) {
-            return locateFieldUsages(question, enrichedDocs, confidence);
-        }
-
-// 📍 Localização de campo
+        // 📍 Campo — localização
         if (isFieldLocationQuestion(question)) {
             return locateField(question, enrichedDocs, confidence);
         }
 
+        // 🔍 Campo — uso
+        if (isFieldUsageQuestion(question)) {
+            return locateFieldUsages(question, enrichedDocs, confidence);
+        }
+
+        // 🧹 Campo — remoção
+        if (isFieldRemovalQuestion(question)) {
+            return canRemoveField(question, enrichedDocs, confidence);
+        }
 
         // 🔗 Resposta normal
-        String response = answer.ask(
-                promptAssembler.build(question, enrichedDocs)
-        );
-
         return new CopilotAnswer(
-                response,
+                answer.ask(promptAssembler.build(question, enrichedDocs)),
                 toSources(enrichedDocs),
                 confidence,
                 null,
@@ -163,8 +168,10 @@ public class RagService {
         String field = fieldOpt.get();
 
         List<SearchResult> matches = docs.stream()
-                .filter(d -> d.content().contains("." + field)
-                        || d.content().contains("get" + capitalize(field)))
+                .filter(d ->
+                        d.content().contains("." + field)
+                                || d.content().contains("get" + capitalize(field))
+                )
                 .toList();
 
         if (matches.isEmpty()) {
@@ -188,7 +195,7 @@ public class RagService {
     }
 
     // =========================================================
-    // 🧹 CAMPO — REMOÇÃO
+    // 🧹 CAMPO — REMOÇÃO (PASSO 13)
     // =========================================================
     private CopilotAnswer canRemoveField(
             String question,
@@ -198,26 +205,52 @@ public class RagService {
         Optional<String> fieldOpt = extractFieldName(question);
 
         if (fieldOpt.isEmpty()) {
-            return simpleAnswer("Não consegui identificar o campo.", confidence);
-        }
-
-        String field = fieldOpt.get();
-
-        boolean hasUsage = docs.stream()
-                .anyMatch(d -> d.content().contains("." + field));
-
-        if (!hasUsage) {
             return simpleAnswer(
-                    "O campo `" + field + "` não possui usos detectados. " +
-                            "Pode ser removido com baixo risco.",
+                    "Não foi possível identificar o campo na pergunta.",
                     confidence
             );
         }
 
-        return simpleAnswer(
-                "O campo `" + field + "` possui usos no projeto. " +
-                        "Removê-lo pode causar impacto.",
-                confidence
+        String field = fieldOpt.get();
+
+        List<SearchResult> matches = docs.stream()
+                .filter(d -> d.content().contains(field))
+                .toList();
+
+        if (matches.isEmpty()) {
+            return simpleAnswer(
+                    "O campo `" + field + "` não possui usos detectados. Pode ser removido com baixo risco.",
+                    confidence
+            );
+        }
+
+        List<SearchResult> realUsages = matches.stream()
+                .filter(d ->
+                        !d.content().matches("(?s).*private\\s+.*\\s+" + field + ".*")
+                )
+                .toList();
+
+        if (realUsages.isEmpty()) {
+            return new CopilotAnswer(
+                    "O campo `" + field + "` está apenas declarado (ex: DTO). " +
+                            "Não há usos em código. Remoção com baixo risco.",
+                    toSources(matches),
+                    confidence,
+                    null,
+                    null
+            );
+        }
+
+        return new CopilotAnswer(
+                "O campo `" + field + "` possui usos no projeto. A remoção pode causar impacto.\n\n" +
+                        realUsages.stream()
+                                .map(r -> "- " + r.path())
+                                .distinct()
+                                .reduce("", (a, b) -> a + b + "\n"),
+                toSources(realUsages),
+                confidence,
+                null,
+                null
         );
     }
 
@@ -253,6 +286,57 @@ public class RagService {
                 ));
     }
 
+    private CopilotAnswer auditDtoUsage(
+            String tenantId,
+            String knowledgeBase,
+            String dto,
+            SearchResult globalDto,
+            double confidence
+    ) {
+
+        List<SearchResult> usages =
+                searchRepository.findUsagesByClassName(tenantId, knowledgeBase, dto);
+
+        List<SearchResult> externalUsages =
+                searchRepository.findUsagesInOtherKnowledgeBases(
+                        tenantId, knowledgeBase, dto
+                );
+
+        boolean usedInOtherProjects = !externalUsages.isEmpty();
+        int usageCount = usages.size() + externalUsages.size();
+
+        String risk = usedInOtherProjects ? "ALTO" : usageCount > 0 ? "MÉDIO" : "BAIXO";
+
+        DtoAuditResult structured = new DtoAuditResult(
+                dto,
+                risk,
+                usedInOtherProjects,
+                false,
+                false,
+                usageCount,
+                List.of(),
+                usedInOtherProjects
+        );
+
+        Optional<AlertResult> alert = alertService.evaluate(structured);
+        alert.ifPresent(ciEnforcer::enforce);
+
+        auditService.record(
+                tenantId,
+                knowledgeBase,
+                structured,
+                alert.orElse(null)
+        );
+
+        return new CopilotAnswer(
+                "Auditoria do uso do " + dto + ":\n\nRisco identificado: " + risk,
+                toSources(Stream.concat(usages.stream(), externalUsages.stream()).toList()),
+                confidence,
+                structured,
+                alert.orElse(null)
+        );
+    }
+
     // =========================================================
     // 🧠 PROJETO
     // =========================================================
@@ -263,8 +347,10 @@ public class RagService {
     ) {
         String prompt = """
                 Você é um arquiteto de software.
-                Descreva o objetivo do projeto, domínio e tipo (API, backend ou integração).
-                Use apenas o código fornecido.
+                Com base apenas no código fornecido, descreva:
+                - objetivo do projeto
+                - domínio de negócio
+                - tipo (API, backend ou integração)
                 """ + promptAssembler.build(question, docs);
 
         return new CopilotAnswer(
@@ -316,7 +402,9 @@ public class RagService {
     private boolean isFieldRemovalQuestion(String q) {
         q = q.toLowerCase();
         return q.contains("remover o campo")
-                || q.contains("posso remover");
+                || q.contains("posso remover")
+                || q.contains("qual impacto de remover")
+                || q.contains("o que quebra se remover");
     }
 
     private List<SearchResult> enrichWithInheritance(
@@ -356,97 +444,8 @@ public class RagService {
     }
 
     private CopilotAnswer emptyAnswer() {
-        return simpleAnswer(
-                "Não encontrei informações suficientes na base.",
-                0.0
-        );
+        return simpleAnswer("Não encontrei informações suficientes na base.", 0.0);
     }
-
-    // =========================================================
-// 🚨 AUDITORIA DTO
-// =========================================================
-    private CopilotAnswer auditDtoUsage(
-            String tenantId,
-            String knowledgeBase,
-            String dto,
-            SearchResult globalDto,
-            double confidence
-    ) {
-
-        String dtoContent = globalDto.content();
-
-        List<SearchResult> usages =
-                searchRepository.findUsagesByClassName(
-                        tenantId, knowledgeBase, dto
-                );
-
-        List<SearchResult> externalUsages =
-                searchRepository.findUsagesInOtherKnowledgeBases(
-                        tenantId, knowledgeBase, dto
-                );
-
-        boolean hasRequiredFields =
-                dtoContent.contains("@NotNull") || dtoContent.contains("@NotBlank");
-
-        boolean usedInOtherProjects = !externalUsages.isEmpty();
-
-        boolean hasExplicitValidation =
-                Stream.concat(usages.stream(), externalUsages.stream())
-                        .anyMatch(u ->
-                                u.content().contains("@Valid")
-                                        || u.content().contains("@Validated")
-                        );
-
-        boolean isContractDto = usedInOtherProjects;
-
-        int usageCount = usages.size() + externalUsages.size();
-
-        String risk =
-                isContractDto && hasRequiredFields && !hasExplicitValidation
-                        ? "ALTO"
-                        : usageCount > 0 ? "MÉDIO" : "BAIXO";
-
-        DtoAuditResult structured = new DtoAuditResult(
-                dto,
-                risk,
-                usedInOtherProjects,
-                hasRequiredFields,
-                hasExplicitValidation,
-                usageCount,
-                List.of(),
-                isContractDto
-        );
-
-        Optional<AlertResult> alert =
-                alertService.evaluate(structured);
-
-        alert.ifPresent(ciEnforcer::enforce);
-
-        Map<String, CopilotAnswer.Source> sources = new LinkedHashMap<>();
-        Stream.concat(usages.stream(), externalUsages.stream())
-                .forEach(u ->
-                        sources.put(
-                                u.path(),
-                                new CopilotAnswer.Source(u.path(), u.score())
-                        )
-                );
-
-        auditService.record(
-                tenantId,
-                knowledgeBase,
-                structured,
-                alert.orElse(null)
-        );
-
-        return new CopilotAnswer(
-                "Auditoria do uso do " + dto + ":\n\nRisco identificado: " + risk,
-                new ArrayList<>(sources.values()),
-                confidence,
-                structured,
-                alert.orElse(null)
-        );
-    }
-
 
     private String capitalize(String s) {
         return s.substring(0, 1).toUpperCase() + s.substring(1);
