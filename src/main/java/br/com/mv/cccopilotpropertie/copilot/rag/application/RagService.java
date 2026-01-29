@@ -100,6 +100,11 @@ public class RagService {
         if (isFieldRemovalQuestion(question)) {
             return canRemoveField(question, enrichedDocs, confidence);
         }
+        // 🌐 ENDPOINT (PASSO 13)
+        if (isEndpointQuestion(question)) {
+            return locateEndpoints(question, enrichedDocs, confidence);
+        }
+
 
         // 🔗 Resposta normal
         return new CopilotAnswer(
@@ -194,6 +199,7 @@ public class RagService {
         );
     }
 
+
     // =========================================================
     // 🧹 CAMPO — REMOÇÃO (PASSO 13)
     // =========================================================
@@ -253,6 +259,58 @@ public class RagService {
                 null
         );
     }
+
+    private CopilotAnswer locateEndpoints(
+            String question,
+            List<SearchResult> docs,
+            double confidence
+    ) {
+        List<EndpointInfo> endpoints = new ArrayList<>();
+
+        for (SearchResult doc : docs) {
+            String content = doc.content();
+
+            if (!content.contains("@RestController")
+                    && !content.contains("@Controller")) {
+                continue;
+            }
+
+            String basePath = extractRequestMapping(content);
+
+            extractHttpMappings(content).forEach(m -> {
+                endpoints.add(new EndpointInfo(
+                        m.method(),
+                        normalizePath(basePath, m.path()),
+                        doc.path()
+                ));
+            });
+        }
+
+        if (endpoints.isEmpty()) {
+            return simpleAnswer(
+                    "Não encontrei endpoints REST expostos neste projeto.",
+                    confidence
+            );
+        }
+
+        String answer =
+                "Endpoints identificados neste projeto:\n\n" +
+                        endpoints.stream()
+                                .map(e -> "- " + e.method + " " + e.path)
+                                .distinct()
+                                .reduce("", (a, b) -> a + b + "\n");
+
+        return new CopilotAnswer(
+                answer,
+                endpoints.stream()
+                        .map(e -> new CopilotAnswer.Source(e.file, 1.0))
+                        .toList(),
+                confidence,
+                null,
+                null
+        );
+    }
+
 
     // =========================================================
     // 🚨 AUDITORIA DTO
@@ -399,12 +457,31 @@ public class RagService {
         return q.contains("campo") && q.contains("usado");
     }
 
+    private String extractRequestMapping(String content) {
+        Matcher m = Pattern.compile(
+                "@RequestMapping\\(\"([^\"]+)\"\\)"
+        ).matcher(content);
+
+        return m.find() ? m.group(1) : "";
+    }
+
+
     private boolean isFieldRemovalQuestion(String q) {
         q = q.toLowerCase();
         return q.contains("remover o campo")
                 || q.contains("posso remover")
                 || q.contains("qual impacto de remover")
                 || q.contains("o que quebra se remover");
+    }
+
+    private boolean isEndpointQuestion(String q) {
+        q = q.toLowerCase();
+        return q.contains("endpoint")
+                || q.contains("api")
+                || q.contains("rota")
+                || q.contains("url")
+                || q.contains("exposto")
+                || q.contains("http");
     }
 
     private List<SearchResult> enrichWithInheritance(
@@ -439,6 +516,25 @@ public class RagService {
                 .toList();
     }
 
+    private List<HttpMapping> extractHttpMappings(String content) {
+        List<HttpMapping> list = new ArrayList<>();
+
+        Pattern p = Pattern.compile(
+                "@(Get|Post|Put|Delete)Mapping\\(\"?([^\")}]*)\"?\\)"
+        );
+
+        Matcher m = p.matcher(content);
+        while (m.find()) {
+            list.add(new HttpMapping(
+                    m.group(1).toUpperCase(),
+                    m.group(2)
+            ));
+        }
+
+        return list;
+    }
+
+
     private CopilotAnswer simpleAnswer(String msg, double confidence) {
         return new CopilotAnswer(msg, List.of(), confidence, null, null);
     }
@@ -450,4 +546,32 @@ public class RagService {
     private String capitalize(String s) {
         return s.substring(0, 1).toUpperCase() + s.substring(1);
     }
+
+    private String normalizePath(String base, String sub) {
+        if (sub == null || sub.isBlank()) return base;
+        if (base.endsWith("/") && sub.startsWith("/"))
+            return base + sub.substring(1);
+        return base + sub;
+    }
+
+    // =========================================================
+// 📎 RECORDS AUXILIARES — PASSO 13
+// =========================================================
+    private record HttpMapping(
+            String method,
+            String path
+    ) {
+    }
+
+    // =========================================================
+// 📎 RECORDS AUXILIARES
+// =========================================================
+    private record EndpointInfo(
+            String method,
+            String path,
+            String file
+    ) {
+    }
+
+
 }
