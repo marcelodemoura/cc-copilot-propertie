@@ -10,7 +10,8 @@ import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.regex.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @Service
@@ -53,9 +54,8 @@ public class RagService {
     // =========================================================
     public CopilotAnswer ask(String tenantId, String knowledgeBase, String question) {
 
-        // 🧠 PASSO 11 — entendimento do projeto (NÃO depende da pergunta)
+        // 🧠 PASSO 11 — entendimento do projeto
         if (isProjectUnderstandingQuestion(question)) {
-
             List<SearchResult> projectDocs =
                     search.search(tenantId, knowledgeBase, "DTO", 20);
 
@@ -66,7 +66,11 @@ public class RagService {
                 );
             }
 
-            return summarizeProject(question, projectDocs, calculateConfidence(projectDocs));
+            return summarizeProject(
+                    question,
+                    projectDocs,
+                    calculateConfidence(projectDocs)
+            );
         }
 
         List<SearchResult> docs =
@@ -100,11 +104,22 @@ public class RagService {
         if (isFieldRemovalQuestion(question)) {
             return canRemoveField(question, enrichedDocs, confidence);
         }
-        // 🌐 ENDPOINT (PASSO 13)
+
+        // 🌐 ENDPOINTS — PASSO 13
         if (isEndpointQuestion(question)) {
             return locateEndpoints(question, enrichedDocs, confidence);
         }
 
+        // 🌍 Impacto externo / contratual — PASSO 14
+        if (isExternalImpactQuestion(question)) {
+            return analyzeExternalImpact(
+                    tenantId,
+                    knowledgeBase,
+                    question,
+                    enrichedDocs,
+                    confidence
+            );
+        }
 
         // 🔗 Resposta normal
         return new CopilotAnswer(
@@ -125,7 +140,6 @@ public class RagService {
             double confidence
     ) {
         Optional<String> fieldOpt = extractFieldName(question);
-
         if (fieldOpt.isEmpty()) {
             return simpleAnswer("Não consegui identificar o campo.", confidence);
         }
@@ -165,7 +179,6 @@ public class RagService {
             double confidence
     ) {
         Optional<String> fieldOpt = extractFieldName(question);
-
         if (fieldOpt.isEmpty()) {
             return simpleAnswer("Não consegui identificar o campo.", confidence);
         }
@@ -199,9 +212,8 @@ public class RagService {
         );
     }
 
-
     // =========================================================
-    // 🧹 CAMPO — REMOÇÃO (PASSO 13)
+    // 🧹 CAMPO — REMOÇÃO
     // =========================================================
     private CopilotAnswer canRemoveField(
             String question,
@@ -209,7 +221,6 @@ public class RagService {
             double confidence
     ) {
         Optional<String> fieldOpt = extractFieldName(question);
-
         if (fieldOpt.isEmpty()) {
             return simpleAnswer(
                     "Não foi possível identificar o campo na pergunta.",
@@ -260,6 +271,9 @@ public class RagService {
         );
     }
 
+    // =========================================================
+    // 🌐 ENDPOINTS — PASSO 13
+    // =========================================================
     private CopilotAnswer locateEndpoints(
             String question,
             List<SearchResult> docs,
@@ -277,13 +291,15 @@ public class RagService {
 
             String basePath = extractRequestMapping(content);
 
-            extractHttpMappings(content).forEach(m -> {
-                endpoints.add(new EndpointInfo(
-                        m.method(),
-                        normalizePath(basePath, m.path()),
-                        doc.path()
-                ));
-            });
+            extractHttpMappings(content).forEach(m ->
+                    endpoints.add(
+                            new EndpointInfo(
+                                    m.method(),
+                                    normalizePath(basePath, m.path()),
+                                    doc.path()
+                            )
+                    )
+            );
         }
 
         if (endpoints.isEmpty()) {
@@ -311,6 +327,67 @@ public class RagService {
         );
     }
 
+    // =========================================================
+    // 🌍 IMPACTO EXTERNO — PASSO 14
+    // =========================================================
+    private CopilotAnswer analyzeExternalImpact(
+            String tenantId,
+            String knowledgeBase,
+            String question,
+            List<SearchResult> docs,
+            double confidence
+    ) {
+        Optional<String> dtoOpt = extractDtoName(question);
+
+        if (dtoOpt.isEmpty()) {
+            return simpleAnswer(
+                    "Não foi possível identificar o elemento para análise de impacto externo.",
+                    confidence
+            );
+        }
+
+        String dto = dtoOpt.get();
+
+        List<SearchResult> externalUsages =
+                searchRepository.findUsagesInOtherKnowledgeBases(
+                        tenantId,
+                        knowledgeBase,
+                        dto
+                );
+
+        boolean isContractDto = !externalUsages.isEmpty();
+        boolean hasVersioning = dto.matches(".*V\\d+");
+
+        String impact =
+                isContractDto && !hasVersioning ? "CRÍTICO"
+                        : isContractDto ? "ALTO"
+                        : "BAIXO";
+
+        String answer = """
+                Análise de impacto externo:
+
+                • DTO: %s
+                • Usado por outros projetos: %s
+                • Atua como contrato: %s
+                • Versionamento: %s
+
+                Impacto estimado: %s
+                """.formatted(
+                dto,
+                isContractDto,
+                isContractDto,
+                hasVersioning ? "SIM" : "NÃO",
+                impact
+        );
+
+        return new CopilotAnswer(
+                answer,
+                toSources(externalUsages),
+                confidence,
+                null,
+                null
+        );
+    }
 
     // =========================================================
     // 🚨 AUDITORIA DTO
@@ -351,9 +428,10 @@ public class RagService {
             SearchResult globalDto,
             double confidence
     ) {
-
         List<SearchResult> usages =
-                searchRepository.findUsagesByClassName(tenantId, knowledgeBase, dto);
+                searchRepository.findUsagesByClassName(
+                        tenantId, knowledgeBase, dto
+                );
 
         List<SearchResult> externalUsages =
                 searchRepository.findUsagesInOtherKnowledgeBases(
@@ -363,7 +441,10 @@ public class RagService {
         boolean usedInOtherProjects = !externalUsages.isEmpty();
         int usageCount = usages.size() + externalUsages.size();
 
-        String risk = usedInOtherProjects ? "ALTO" : usageCount > 0 ? "MÉDIO" : "BAIXO";
+        String risk =
+                usedInOtherProjects ? "ALTO"
+                        : usageCount > 0 ? "MÉDIO"
+                        : "BAIXO";
 
         DtoAuditResult structured = new DtoAuditResult(
                 dto,
@@ -457,15 +538,6 @@ public class RagService {
         return q.contains("campo") && q.contains("usado");
     }
 
-    private String extractRequestMapping(String content) {
-        Matcher m = Pattern.compile(
-                "@RequestMapping\\(\"([^\"]+)\"\\)"
-        ).matcher(content);
-
-        return m.find() ? m.group(1) : "";
-    }
-
-
     private boolean isFieldRemovalQuestion(String q) {
         q = q.toLowerCase();
         return q.contains("remover o campo")
@@ -482,6 +554,18 @@ public class RagService {
                 || q.contains("url")
                 || q.contains("exposto")
                 || q.contains("http");
+    }
+
+    private boolean isExternalImpactQuestion(String q) {
+        q = q.toLowerCase();
+        return q.contains("quebra")
+                || q.contains("impacta")
+                || q.contains("contrato")
+                || q.contains("externo")
+                || q.contains("outro sistema")
+                || q.contains("consumido")
+                || q.contains("integração")
+                || q.contains("publico");
     }
 
     private List<SearchResult> enrichWithInheritance(
@@ -516,6 +600,14 @@ public class RagService {
                 .toList();
     }
 
+    private String extractRequestMapping(String content) {
+        Matcher m = Pattern.compile(
+                "@RequestMapping\\(\"([^\"]+)\"\\)"
+        ).matcher(content);
+
+        return m.find() ? m.group(1) : "";
+    }
+
     private List<HttpMapping> extractHttpMappings(String content) {
         List<HttpMapping> list = new ArrayList<>();
 
@@ -534,13 +626,15 @@ public class RagService {
         return list;
     }
 
-
     private CopilotAnswer simpleAnswer(String msg, double confidence) {
         return new CopilotAnswer(msg, List.of(), confidence, null, null);
     }
 
     private CopilotAnswer emptyAnswer() {
-        return simpleAnswer("Não encontrei informações suficientes na base.", 0.0);
+        return simpleAnswer(
+                "Não encontrei informações suficientes na base.",
+                0.0
+        );
     }
 
     private String capitalize(String s) {
@@ -555,23 +649,8 @@ public class RagService {
     }
 
     // =========================================================
-// 📎 RECORDS AUXILIARES — PASSO 13
-// =========================================================
-    private record HttpMapping(
-            String method,
-            String path
-    ) {
-    }
-
+    // 📎 RECORDS AUXILIARES
     // =========================================================
-// 📎 RECORDS AUXILIARES
-// =========================================================
-    private record EndpointInfo(
-            String method,
-            String path,
-            String file
-    ) {
-    }
-
-
+    private record HttpMapping(String method, String path) {}
+    private record EndpointInfo(String method, String path, String file) {}
 }
