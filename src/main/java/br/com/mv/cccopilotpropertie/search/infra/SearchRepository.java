@@ -38,4 +38,10 @@ public interface SearchRepository {
             String excludeKnowledgeBase,
             String dtoName
     );
+    List<SearchResult> findEndpointsUsingDto(
+            String tenantId,
+            String knowledgeBase,
+            String dtoName
+    );
+
 }

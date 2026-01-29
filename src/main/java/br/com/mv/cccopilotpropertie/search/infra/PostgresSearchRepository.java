@@ -163,4 +163,14 @@ public class PostgresSearchRepository implements SearchRepository {
                 "%/" + dtoName + ".java"
         );
     }
+
+    @Override
+    public List<SearchResult> findEndpointsUsingDto(
+            String tenantId,
+            String knowledgeBase,
+            String dtoName
+    ) {
+        return List.of();
+    }
+
 }

@@ -27,6 +27,8 @@ public class AuditExecution {
 
     protected AuditExecution() {}
 
+    private String auditType; // USAGE | CHANGE_DECISION
+
     public AuditExecution(
             String tenantId,
             String knowledgeBase,

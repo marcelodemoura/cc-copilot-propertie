@@ -1,5 +1,7 @@
 package br.com.mv.cccopilotpropertie.copilot.alert;
 
+import br.com.mv.cccopilotpropertie.copilot.breaking.BreakingAnalysisResult;
+import br.com.mv.cccopilotpropertie.copilot.breaking.BreakingType;
 import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
 import org.springframework.stereotype.Service;
 
@@ -51,4 +53,29 @@ public class AlertService {
                         ? " e é utilizado como contrato entre sistemas."
                         : ".");
     }
+
+    public Optional<AlertResult> evaluateBreaking(
+            BreakingAnalysisResult result
+    ) {
+        if (result == null) return Optional.empty();
+
+        if (result.breakingType() == BreakingType.BREAKING_CRITICAL) {
+            return Optional.of(new AlertResult(
+                    AlertLevel.CRITICAL,
+                    "Breaking change crítico detectado",
+                    result.reason()
+            ));
+        }
+
+        if (result.breakingType() == BreakingType.BREAKING) {
+            return Optional.of(new AlertResult(
+                    AlertLevel.WARNING,
+                    "Breaking change detectado",
+                    result.reason()
+            ));
+        }
+
+        return Optional.empty();
+    }
+
 }
