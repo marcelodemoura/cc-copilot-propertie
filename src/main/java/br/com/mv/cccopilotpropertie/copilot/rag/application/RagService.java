@@ -24,6 +24,7 @@ public class RagService {
     private final AlertService alertService;
     private final CiEnforcer ciEnforcer;
     private final AuditService auditService;
+    private ConversationContext lastContext;
 
     private static final Pattern DTO_PATTERN =
             Pattern.compile("(\\w+)\\s*DTO", Pattern.CASE_INSENSITIVE);
@@ -140,11 +141,14 @@ public class RagService {
             double confidence
     ) {
         Optional<String> fieldOpt = extractFieldName(question);
+
         if (fieldOpt.isEmpty()) {
             return simpleAnswer("Não consegui identificar o campo.", confidence);
         }
 
         String field = fieldOpt.get();
+
+        lastContext = new ConversationContext(null, field, null);
 
         List<SearchResult> matches = docs.stream()
                 .filter(d -> d.content().contains(field))
@@ -184,6 +188,8 @@ public class RagService {
         }
 
         String field = fieldOpt.get();
+
+        lastContext = new ConversationContext(null, field, null);
 
         List<SearchResult> matches = docs.stream()
                 .filter(d ->
@@ -229,6 +235,8 @@ public class RagService {
         }
 
         String field = fieldOpt.get();
+
+        lastContext = new ConversationContext(null, field, null);
 
         List<SearchResult> matches = docs.stream()
                 .filter(d -> d.content().contains(field))
@@ -308,6 +316,11 @@ public class RagService {
                     confidence
             );
         }
+        if (!endpoints.isEmpty()) {
+            // salva último endpoint encontrado
+            EndpointInfo last = endpoints.get(0);
+            lastContext = new ConversationContext(null, null, last.path());
+        }
 
         String answer =
                 "Endpoints identificados neste projeto:\n\n" +
@@ -339,6 +352,10 @@ public class RagService {
     ) {
         Optional<String> dtoOpt = extractDtoName(question);
 
+        if (dtoOpt.isEmpty() && lastContext != null && lastContext.dto() != null) {
+            dtoOpt = Optional.of(lastContext.dto());
+        }
+
         if (dtoOpt.isEmpty()) {
             return simpleAnswer(
                     "Não foi possível identificar o elemento para análise de impacto externo.",
@@ -347,6 +364,9 @@ public class RagService {
         }
 
         String dto = dtoOpt.get();
+
+// ✅ SALVA CONTEXTO AQUI
+        lastContext = new ConversationContext(dto, null, null);
 
         List<SearchResult> externalUsages =
                 searchRepository.findUsagesInOtherKnowledgeBases(
@@ -365,12 +385,12 @@ public class RagService {
 
         String answer = """
                 Análise de impacto externo:
-
+                
                 • DTO: %s
                 • Usado por outros projetos: %s
                 • Atua como contrato: %s
                 • Versionamento: %s
-
+                
                 Impacto estimado: %s
                 """.formatted(
                 dto,
@@ -406,6 +426,10 @@ public class RagService {
 
         String dto = dtoOpt.get();
 
+        // 👇 salva contexto
+        lastContext = new ConversationContext(dto, null, null);
+
+
         return searchRepository
                 .findDtoDefinitionGlobal(tenantId, dto)
                 .map(d -> auditDtoUsage(
@@ -420,6 +444,17 @@ public class RagService {
                         confidence
                 ));
     }
+
+    // =========================================================
+    // 🧠 CONTEXTO DE CONVERSA (memória curta)
+    // =========================================================
+    private record ConversationContext(
+            String dto,
+            String field,
+            String endpoint
+    ) {
+    }
+
 
     private CopilotAnswer auditDtoUsage(
             String tenantId,
@@ -648,9 +683,13 @@ public class RagService {
         return base + sub;
     }
 
+
     // =========================================================
     // 📎 RECORDS AUXILIARES
     // =========================================================
-    private record HttpMapping(String method, String path) {}
-    private record EndpointInfo(String method, String path, String file) {}
+    private record HttpMapping(String method, String path) {
+    }
+
+    private record EndpointInfo(String method, String path, String file) {
+    }
 }
