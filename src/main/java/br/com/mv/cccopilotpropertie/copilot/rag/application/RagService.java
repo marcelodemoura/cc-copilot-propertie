@@ -239,22 +239,37 @@ public class RagService {
 
         String field = fieldOpt.get();
 
-        lastContext = new ConversationContext(
-                null,
-                field,
-                null,
-                new ChangeSet(
-                        ChangeTarget.FIELD,
-                        ChangeType.REMOVE,
-                        field,
-                        null,
-                        null
-                )
-        );
-
+        // 🔍 Primeiro: identificar onde o campo aparece de verdade
         List<SearchResult> matches = docs.stream()
                 .filter(d -> d.content().contains(field))
                 .toList();
+
+        // 🔎 PASSO 16.1 — inferir DTO a partir dos arquivos onde o campo aparece
+        String inferredDto = matches.stream()
+                .map(SearchResult::path)
+                .filter(p -> p.endsWith("DTO.java"))
+                .map(p -> p.substring(p.lastIndexOf("/") + 1))
+                .map(p -> p.replace(".java", ""))
+                .findFirst()
+                .orElse(null);
+
+        ChangeSet change = new ChangeSet(
+                ChangeTarget.FIELD,
+                ChangeType.REMOVE,
+                field,
+                inferredDto,   // 🔥 DTO AQUI
+                null,
+                null
+        );
+
+
+        // 🧠 salva contexto completo (FIELD → DTO)
+        lastContext = new ConversationContext(
+                inferredDto,
+                field,
+                null,
+                change
+        );
 
         if (matches.isEmpty()) {
             return simpleAnswer(
@@ -312,6 +327,16 @@ public class RagService {
             double confidence
     ) {
         Optional<String> dtoOpt = extractDtoName(question);
+
+        // 🔁 fallback: usar DTO do último ChangeSet
+        if (dtoOpt.isEmpty()
+                && lastContext != null
+                && lastContext.lastChange() != null
+                && lastContext.lastChange().dtoName() != null) {
+
+            dtoOpt = Optional.of(lastContext.lastChange().dtoName());
+        }
+
         if (dtoOpt.isEmpty()) {
             return simpleAnswer(
                     "Não consegui identificar o DTO para análise externa.",
@@ -320,7 +345,9 @@ public class RagService {
         }
 
         String dto = dtoOpt.get();
-        lastContext = new ConversationContext(dto, null, null, null);
+
+        // mantém contexto
+        lastContext = new ConversationContext(dto, null, null, lastContext.lastChange());
 
         List<SearchResult> externalUsages =
                 searchRepository.findUsagesInOtherKnowledgeBases(
@@ -342,6 +369,7 @@ public class RagService {
                 null
         );
     }
+
 
 
     // =========================================================
