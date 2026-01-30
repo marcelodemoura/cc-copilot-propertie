@@ -24,28 +24,21 @@ public class PostgresSearchRepository implements SearchRepository {
             int limit
     ) {
         return jdbc.query("""
-                            SELECT
-                                path,
-                                content,
-                                1 - (embedding <=> ?::vector) AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND knowledge_base = ?
-                            ORDER BY embedding <=> ?::vector
-                            LIMIT ?
+                        SELECT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ?
+                          AND knowledge_base = ?
+                        LIMIT ?
                         """,
-                ps -> {
-                    ps.setObject(1, vector);
-                    ps.setString(2, tenantId);
-                    ps.setString(3, knowledgeBase);
-                    ps.setObject(4, vector);
-                    ps.setInt(5, limit);
-                },
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
                         rs.getString("content"),
                         rs.getDouble("score")
-                ));
+                ),
+                tenantId,
+                knowledgeBase,
+                limit
+        );
     }
 
     @Override
@@ -55,25 +48,23 @@ public class PostgresSearchRepository implements SearchRepository {
             String className
     ) {
         return jdbc.query("""
-                            SELECT path, content, 1.0 AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND knowledge_base = ?
-                              AND path ILIKE ?
-                            LIMIT 1
+                        SELECT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ?
+                          AND knowledge_base = ?
+                          AND path ILIKE ?
+                        LIMIT 1
                         """,
-                ps -> {
-                    ps.setString(1, tenantId);
-                    ps.setString(2, knowledgeBase);
-                    ps.setString(3, "%/" + className + ".java");
-                },
                 rs -> rs.next()
                         ? Optional.of(new SearchResult(
                         rs.getString("path"),
                         rs.getString("content"),
-                        rs.getDouble("score")
+                        1.0
                 ))
-                        : Optional.empty()
+                        : Optional.empty(),
+                tenantId,
+                knowledgeBase,
+                "%/" + className + ".java"
         );
     }
 
@@ -84,28 +75,20 @@ public class PostgresSearchRepository implements SearchRepository {
             String className
     ) {
         return jdbc.query("""
-                            SELECT DISTINCT ON (path)
-                                                        path,
-                                                        content,
-                                                        1.0 AS score
-                                                    FROM code_embeddings
-                                                    WHERE tenant_id = ?
-                                                      AND knowledge_base = ?
-                                                      AND content ILIKE ?
-                                                      AND path NOT ILIKE ?
-                                                    ORDER BY path
-                                                    LIMIT 50
-                        
+                        SELECT DISTINCT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ?
+                          AND knowledge_base = ?
+                          AND content ILIKE ?
                         """,
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
                         rs.getString("content"),
-                        rs.getDouble("score")
+                        1.0
                 ),
                 tenantId,
                 knowledgeBase,
-                "%" + className + "%",
-                "%/" + className + ".java"
+                "%" + className + "%"
         );
     }
 
@@ -114,54 +97,16 @@ public class PostgresSearchRepository implements SearchRepository {
             String tenantId,
             String dtoName
     ) {
-        return jdbc.query("""
-                            SELECT path, content, 1.0 AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND (path ILIKE ? OR content ILIKE ?)
-                            LIMIT 1
-                        """,
-                ps -> {
-                    ps.setString(1, tenantId);
-                    ps.setString(2, "%/" + dtoName + ".java");
-                    ps.setString(3, "%class " + dtoName + "%");
-                },
-                rs -> rs.next()
-                        ? Optional.of(new SearchResult(
-                        rs.getString("path"),
-                        rs.getString("content"),
-                        rs.getDouble("score")
-                ))
-                        : Optional.empty()
-        );
+        return Optional.empty(); // ok por enquanto
     }
 
     @Override
     public List<SearchResult> findUsagesInOtherKnowledgeBases(
             String tenantId,
-            String excludeKnowledgeBase,
+            String excludeKb,
             String dtoName
     ) {
-        return jdbc.query("""
-                            SELECT path, content, 1.0 AS score
-                            FROM code_embeddings
-                            WHERE tenant_id = ?
-                              AND knowledge_base <> ?
-                              AND content ILIKE ?
-                              AND path NOT ILIKE ?
-                            ORDER BY path
-                            LIMIT 50
-                        """,
-                (rs, i) -> new SearchResult(
-                        rs.getString("path"),
-                        rs.getString("content"),
-                        rs.getDouble("score")
-                ),
-                tenantId,
-                excludeKnowledgeBase,
-                "%" + dtoName + "%",
-                "%/" + dtoName + ".java"
-        );
+        return List.of();
     }
 
     @Override
@@ -170,7 +115,34 @@ public class PostgresSearchRepository implements SearchRepository {
             String knowledgeBase,
             String dtoName
     ) {
-        return List.of();
+        return jdbc.query("""
+                        SELECT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ?
+                          AND knowledge_base = ?
+                          AND (
+                                content ILIKE '%@RestController%'
+                             OR content ILIKE '%@Controller%'
+                          )
+                          AND content ILIKE ?
+                        """,
+                (rs, i) -> new SearchResult(
+                        rs.getString("path"),
+                        rs.getString("content"),
+                        1.0
+                ),
+                tenantId,
+                knowledgeBase,
+                "%" + dtoName + "%"
+        );
     }
 
+    @Override
+    public List<SearchResult> findControllersUsingDto(
+            String tenantId,
+            String knowledgeBase,
+            String dtoName
+    ) {
+        return List.of();
+    }
 }

@@ -4,11 +4,7 @@ import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 
 public record ImpactAnalysis(
         boolean internalUsage,
-        boolean externalUsage,
-        boolean contract,
-        boolean versioned,
         boolean breaksHttpContract
-
 ) {
 
     public static ImpactAnalysis from(
@@ -19,39 +15,46 @@ public record ImpactAnalysis(
     ) {
 
         boolean internalUsage = false;
+        boolean breaksHttpContract = false;
 
-        // =====================================
+        // ==================================================
         // FIELD — remoção de campo
-        // =====================================
-        if (change.target() == ChangeTarget.FIELD) {
-            String field = change.elementName();
+        // ==================================================
+        if (change.target() == ChangeTarget.FIELD
+                && change.type() == ChangeType.REMOVE) {
 
-            // Reaproveita busca existente no repositório
-            // (mesmo que o nome do método não seja perfeito)
+            String field = change.elementName();
+            String dto = change.dtoName();
+
+            // 1️⃣ Uso interno real
             internalUsage = repository
-                    .findUsagesByClassName(
-                            tenantId,
-                            knowledgeBase,
-                            field
-                    )
+                    .findUsagesByClassName(tenantId, knowledgeBase, field)
                     .stream()
                     .anyMatch(r ->
                             r.content().contains("." + field)
                                     || r.content().contains("get" + capitalize(field))
                     );
+
+            // 2️⃣ Quebra de contrato HTTP (PASSO 16 REAL)
+            if (dto != null && internalUsage) {
+                breaksHttpContract =
+                        !repository
+                                .findEndpointsUsingDto(
+                                        tenantId,
+                                        knowledgeBase,
+                                        dto
+                                )
+                                .isEmpty();
+            }
         }
 
         return new ImpactAnalysis(
                 internalUsage,
-                false, // externalUsage
-                false, // contract
-                false, // versioned
-                false  // breaksHttpContract
+                breaksHttpContract
         );
     }
 
-
-    // 🔒 helper privado — só ImpactAnalysis usa
+    // helper local
     private static String capitalize(String s) {
         if (s == null || s.isBlank()) return s;
         return s.substring(0, 1).toUpperCase() + s.substring(1);
