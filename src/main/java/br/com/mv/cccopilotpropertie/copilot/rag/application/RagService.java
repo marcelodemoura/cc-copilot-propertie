@@ -83,6 +83,82 @@ public class RagService {
             );
         }
 
+        // ============================================
+        // 🚀 FAST PATH — impacto externo já decidido
+        // ============================================
+        if (isExternalImpactQuestion(question)
+                && lastContext != null
+                && lastContext.lastChange() != null
+                && lastContext.lastChange().dtoName() != null) {
+
+            String dto = lastContext.lastChange().dtoName();
+
+            List<SearchResult> externalUsages =
+                    searchRepository.findUsagesInOtherKnowledgeBases(
+                            tenantId,
+                            knowledgeBase,
+                            dto
+                    );
+
+            boolean contract = !externalUsages.isEmpty();
+
+            return new CopilotAnswer(
+                    "DTO `" + dto + "` " +
+                            (contract
+                                    ? "é usado como contrato externo."
+                                    : "não possui uso externo."),
+                    toSources(externalUsages),
+                    1.0,
+                    null,
+                    null
+            );
+        }
+
+        // ============================================
+        // 🚀 FAST PATH — breaking já analisado
+        // ============================================
+        if (isBreakingChangeQuestion(question)
+                && lastContext != null
+                && lastContext.lastChange() != null) {
+
+            ChangeSet change = lastContext.lastChange();
+
+            ImpactAnalysis impact =
+                    ImpactAnalysis.from(
+                            tenantId,
+                            knowledgeBase,
+                            change,
+                            searchRepository
+                    );
+
+            BreakingAnalysisResult result =
+                    breakingChangeAnalyzer.analyze(change, impact);
+
+            return new CopilotAnswer(
+                    """
+                    Análise de Breaking Change:
+        
+                    • Elemento: %s
+                    • Tipo de mudança: %s
+                    • Classificação: %s
+                    • Motivo: %s
+                    • Versionamento necessário: %s
+                    """.formatted(
+                            change.elementName(),
+                            change.type(),
+                            result.breakingType(),
+                            result.reason(),
+                            result.requiresVersioning() ? "SIM" : "NÃO"
+                    ),
+                    List.of(),
+                    1.0,
+                    null,
+                    null
+            );
+        }
+
+
+
         List<SearchResult> docs =
                 search.search(tenantId, knowledgeBase, question, 12);
 
@@ -369,7 +445,6 @@ public class RagService {
                 null
         );
     }
-
 
 
     // =========================================================
