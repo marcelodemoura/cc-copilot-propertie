@@ -9,11 +9,14 @@ import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntent;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntentHandler;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+@Order(0)
 @Service
 public class FieldRemovalHandler implements CopilotIntentHandler {
 

@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-
 @Service
 public class RagServiceV2 {
 
@@ -33,46 +32,35 @@ public class RagServiceV2 {
             String question
     ) {
 
-        // 🧠 Estado da conversa (por request)
         ConversationState state = new ConversationState();
 
-        // 🔥 PASSO 5 — enriquecer contexto
-        parser.enrich(question, state);
+        // V2 — enriquecimento mínimo de contexto
+        String normalized = normalizer.normalize(question);
+        parser.enrich(normalized, state);
 
-        // 🔥 PASSO 7 — normalizar intenção
-        String normalizedIntent = normalizer.normalize(question);
-
-        // 🔁 Resolver handler correto
         for (CopilotIntentHandler handler : handlers) {
-
-            if (!handler.intent().name().equals(normalizedIntent)) {
-                continue;
-            }
-
-            if (handler.supports(question, state)) {
+            if (handler.supports(normalized, state)) {
                 return handler.handle(
                         tenantId,
                         knowledgeBase,
-                        question,
+                        normalized,
                         state
                 );
             }
         }
 
-        // 🔚 Fallback explícito
         return fallback();
     }
 
     private CopilotAnswer fallback() {
         return new CopilotAnswer(
                 """
-                Ainda não consegui entender bem a pergunta 🤔
+                Ainda não consegui entender bem a pergunta.
 
-                👉 Exemplos que eu entendo:
+                👉 Exemplos:
                 - "posso remover o campo cnpj?"
                 - "isso é breaking?"
-                - "isso quebra alguma API?"
-                - "impacta outro sistema?"
+                - "isso quebra alguma api?"
                 """,
                 List.of(),
                 0.4,

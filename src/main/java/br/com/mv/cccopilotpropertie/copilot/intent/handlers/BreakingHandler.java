@@ -6,10 +6,11 @@ import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntent;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntentHandler;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-
+@Order(1)
 @Service
 public class BreakingHandler implements CopilotIntentHandler {
 

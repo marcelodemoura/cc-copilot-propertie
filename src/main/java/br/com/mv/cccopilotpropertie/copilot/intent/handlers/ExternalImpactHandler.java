@@ -1,5 +1,6 @@
 package br.com.mv.cccopilotpropertie.copilot.intent.handlers;
 
+import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeSet;
 import br.com.mv.cccopilotpropertie.copilot.domain.ConversationState;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntent;
@@ -12,7 +13,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
-@Order(2)
+@Order(3)
 public class ExternalImpactHandler implements CopilotIntentHandler {
 
     private final SearchRepository searchRepository;
@@ -43,48 +44,94 @@ public class ExternalImpactHandler implements CopilotIntentHandler {
     ) {
 
         if (state == null || state.getLastChange() == null) {
-            return simple(
-                    "Ainda não sei qual mudança você está analisando.\n\n👉 Exemplo: \"posso remover o campo cnpj?\"",
-                    0.6
+            return new CopilotAnswer(
+                    """
+                    Ainda não sei qual mudança você está analisando.
+                    
+                    👉 Exemplo:
+                    "posso remover o campo cnpj?"
+                    """,
+                    List.of(),
+                    0.5,
+                    null,
+                    null
             );
         }
 
-        String dto = state.getDto();
+        ChangeSet change = state.getLastChange();
+        String dto = change.dtoName();
+
         if (dto == null) {
-            return simple("Não consegui identificar o DTO afetado.", 0.6);
+            return new CopilotAnswer(
+                    """
+                    Não consegui identificar o DTO afetado pela mudança.
+                    
+                    👉 Dica:
+                    pergunte primeiro sobre a remoção do campo.
+                    """,
+                    List.of(),
+                    0.5,
+                    null,
+                    null
+            );
         }
 
-        List<SearchResult> external =
+        List<SearchResult> externalUsages =
                 searchRepository.findUsagesInOtherKnowledgeBases(
                         tenantId,
                         knowledgeBase,
                         dto
                 );
 
-        if (external.isEmpty()) {
-            return simple(
-                    "O DTO `" + dto + "` **não possui uso em outros sistemas**.",
-                    1.0
-            );
-        }
+        boolean hasExternalImpact = !externalUsages.isEmpty();
 
-        return new CopilotAnswer(
-                "⚠️ **Impacto externo detectado**.\n\n"
-                        + "O DTO `" + dto + "` é utilizado por outros sistemas:\n\n"
-                        + external.stream()
+        String message = hasExternalImpact
+                ? """
+                  ⚠️ **Impacto externo detectado**
+                  
+                  O DTO `%s` é utilizado por outros sistemas.
+                  
+                  • Mudança analisada: %s
+                  • Tipo: %s
+                  • Risco: quebra de contrato entre sistemas
+                  
+                  Sistemas afetados:
+                  %s
+                  
+                  👉 Próximo passo: *preciso versionar essa mudança?*
+                  """.formatted(
+                dto,
+                change.elementName(),
+                change.type(),
+                externalUsages.stream()
                         .map(r -> "- " + r.path())
                         .distinct()
-                        .reduce("", String::concat),
-                external.stream()
+                        .reduce("", String::concat)
+        )
+                : """
+                  ✅ **Nenhum impacto externo detectado**
+                  
+                  O DTO `%s` **não é utilizado** por outros sistemas.
+                  
+                  • Mudança analisada: %s
+                  • Tipo: %s
+                  • Impacto externo: NÃO
+                  
+                  👉 Próximo passo: *isso quebra alguma API?*
+                  """.formatted(
+                dto,
+                change.elementName(),
+                change.type()
+        );
+
+        return new CopilotAnswer(
+                message,
+                externalUsages.stream()
                         .map(r -> new CopilotAnswer.Source(r.path(), r.score()))
                         .toList(),
                 1.0,
                 null,
                 null
         );
-    }
-
-    private CopilotAnswer simple(String msg, double c) {
-        return new CopilotAnswer(msg, List.of(), c, null, null);
     }
 }

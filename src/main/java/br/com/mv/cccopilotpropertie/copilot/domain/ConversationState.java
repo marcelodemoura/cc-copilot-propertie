@@ -1,7 +1,6 @@
 package br.com.mv.cccopilotpropertie.copilot.domain;
 
 import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeSet;
-
 public class ConversationState {
 
     private String dto;
@@ -12,20 +11,20 @@ public class ConversationState {
         return dto;
     }
 
-    public void setDto(String dto) {
-        this.dto = dto;
-    }
-
     public String getField() {
         return field;
     }
 
-    public void setField(String field) {
-        this.field = field;
-    }
-
     public ChangeSet getLastChange() {
         return lastChange;
+    }
+
+    public void setDto(String dto) {
+        this.dto = dto;
+    }
+
+    public void setField(String field) {
+        this.field = field;
     }
 
     public void setLastChange(ChangeSet lastChange) {
