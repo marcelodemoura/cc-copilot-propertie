@@ -1,7 +1,5 @@
 package br.com.mv.cccopilotpropertie.copilot.domain;
 
-import br.com.mv.cccopilotpropertie.copilot.alert.AlertResult;
-
 import java.util.List;
 
 public record CopilotAnswer(
@@ -9,11 +7,28 @@ public record CopilotAnswer(
         List<Source> sources,
         double confidence,
         Object structured,
-        AlertResult alert
-        ) {
+        Object alert
+) {
 
-    public record Source(
-            String path,
-            double score
-    ) {}
+    public static CopilotAnswer simple(String message) {
+        return new CopilotAnswer(
+                message,
+                List.of(),
+                1.0,
+                null,
+                null
+        );
+    }
+
+    public static CopilotAnswer simple(String message, double confidence) {
+        return new CopilotAnswer(
+                message,
+                List.of(),
+                confidence,
+                null,
+                null
+        );
+    }
+
+    public record Source(String path, double score) {}
 }

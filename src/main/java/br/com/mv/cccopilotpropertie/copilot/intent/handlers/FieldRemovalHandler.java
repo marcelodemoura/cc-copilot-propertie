@@ -3,6 +3,7 @@ package br.com.mv.cccopilotpropertie.copilot.intent.handlers;
 import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeSet;
 import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeTarget;
 import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeType;
+import br.com.mv.cccopilotpropertie.copilot.answer.AnswerBuilder;
 import br.com.mv.cccopilotpropertie.copilot.domain.ConversationState;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntent;
@@ -20,12 +21,16 @@ import java.util.regex.Pattern;
 @Service
 public class FieldRemovalHandler implements CopilotIntentHandler {
 
+    private final AnswerBuilder answerBuilder;
+
+
     private static final Pattern FIELD_PATTERN =
             Pattern.compile("campo\\s+(\\w+)", Pattern.CASE_INSENSITIVE);
 
     private final SearchRepository searchRepository;
 
-    public FieldRemovalHandler(SearchRepository searchRepository) {
+    public FieldRemovalHandler(AnswerBuilder answerBuilder, SearchRepository searchRepository) {
+        this.answerBuilder = answerBuilder;
         this.searchRepository = searchRepository;
     }
 

@@ -1,6 +1,7 @@
 package br.com.mv.cccopilotpropertie.copilot.intent.handlers;
 
 import br.com.mv.cccopilotpropertie.copilot.breaking.ChangeSet;
+import br.com.mv.cccopilotpropertie.copilot.answer.AnswerBuilder;
 import br.com.mv.cccopilotpropertie.copilot.domain.ConversationState;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.intent.CopilotIntent;
@@ -13,13 +14,16 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
-@Order(2)
+@Order(1)
 public class HttpContractImpactHandler implements CopilotIntentHandler {
 
     private final SearchRepository searchRepository;
+    private final AnswerBuilder answerBuilder;
 
-    public HttpContractImpactHandler(SearchRepository searchRepository) {
+
+    public HttpContractImpactHandler(SearchRepository searchRepository, AnswerBuilder answerBuilder) {
         this.searchRepository = searchRepository;
+        this.answerBuilder = answerBuilder;
     }
 
     @Override
