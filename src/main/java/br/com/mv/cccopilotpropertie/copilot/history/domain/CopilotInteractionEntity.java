@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
+
 @Entity
 @Table(name = "copilot_interaction")
 @Getter

@@ -31,20 +31,14 @@ public class EmbeddingRepository {
                 content,
                 embedding
             )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (id) DO UPDATE SET
-                tenant_id = EXCLUDED.tenant_id,
-                knowledge_base = EXCLUDED.knowledge_base,
-                path = EXCLUDED.path,
-                content = EXCLUDED.content,
-                embedding = EXCLUDED.embedding
+            VALUES (?, ?, ?, ?, ?, CAST(? AS vector))
         """,
                 id,
                 tenantId,
                 knowledgeBase,
                 path,
                 content,
-                vector
+                toVectorLiteral(vector)
         );
     }
 
@@ -53,5 +47,18 @@ public class EmbeddingRepository {
                 "DELETE FROM code_embeddings WHERE path = ?",
                 path
         );
+    }
+
+    public void deleteByKnowledgeBase(String tenantId, String knowledgeBase) {
+        jdbc.update("DELETE FROM code_embeddings WHERE tenant_id = ? AND knowledge_base = ?", tenantId, knowledgeBase);
+    }
+
+    private String toVectorLiteral(float[] vector) {
+        StringBuilder value = new StringBuilder("[");
+        for (int i = 0; i < vector.length; i++) {
+            if (i > 0) value.append(',');
+            value.append(vector[i]);
+        }
+        return value.append(']').toString();
     }
 }

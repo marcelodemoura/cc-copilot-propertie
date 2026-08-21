@@ -1,8 +1,0 @@
-package br.com.mv.cccopilotpropertie.copilot.domain.annotation;
-
-import java.lang.annotation.*;
-
-@Target(ElementType.TYPE)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface ExperimentalDto {
-}

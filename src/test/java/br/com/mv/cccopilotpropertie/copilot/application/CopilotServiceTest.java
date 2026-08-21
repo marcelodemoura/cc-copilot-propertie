@@ -1,7 +1,7 @@
 package br.com.mv.cccopilotpropertie.copilot.application;
 
+import br.com.mv.cccopilotpropertie.copilot.agent.AgentLoop;
 import br.com.mv.cccopilotpropertie.copilot.history.application.CopilotHistoryService;
-import br.com.mv.cccopilotpropertie.copilot.rag.application.RagService;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 class CopilotServiceTest {
 
     @Mock
-    private RagService ragService;
+    private AgentLoop agentLoop;
 
     @Mock
     private CopilotHistoryService historyService;
@@ -29,34 +29,17 @@ class CopilotServiceTest {
 
     @Test
     void should_answer_and_save_history() {
-        // given
         String tenantId = "tenant-1";
-        String knowledgeBase = "kb-1";
+        String kb = "kb-1";
         String question = "O que é RAG?";
 
-        CopilotAnswer expectedAnswer = new CopilotAnswer(
-                "resposta",
-                List.of(),
-                0.9,
-                null,
-                null
-        );
+        CopilotAnswer expected = new CopilotAnswer("resposta", List.of(), 0.9, null, null, null, null);
+        when(agentLoop.run(tenantId, kb, question, null)).thenReturn(expected);
 
+        CopilotAnswer result = copilotService.ask(tenantId, kb, question);
 
-        when(ragService.ask(tenantId, knowledgeBase, question))
-                .thenReturn(expectedAnswer);
-
-        // when
-        CopilotAnswer result =
-                copilotService.ask(tenantId, knowledgeBase, question);
-
-        // then
-        assertEquals(expectedAnswer, result);
-
-        verify(ragService)
-                .ask(tenantId, knowledgeBase, question);
-
-        verify(historyService)
-                .save(tenantId, knowledgeBase, question, expectedAnswer);
+        assertEquals(expected, result);
+        verify(agentLoop).run(tenantId, kb, question, null);
+        verify(historyService).save(tenantId, kb, question, expected);
     }
 }

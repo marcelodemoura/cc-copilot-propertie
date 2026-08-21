@@ -1,10 +1,10 @@
 package br.com.mv.cccopilotpropertie.index;
 
 
-import br.com.mv.cccopilotpropertie.copilot.index.FieldIndexer;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,7 +18,7 @@ public class DefaultIndexService implements IndexService {
     private final ChunkService chunker;
     private final EmbeddingService embedder;
     private final EmbeddingRepository repo;
-    private final FieldIndexer fieldIndex;
+    private final Path allowedBasePath;
 
 
     public DefaultIndexService(
@@ -26,19 +26,28 @@ public class DefaultIndexService implements IndexService {
             ChunkService chunker,
             EmbeddingService embedder,
             EmbeddingRepository repo,
-            FieldIndexer fieldIndex
+            @Value("${indexer.base-path}") String allowedBasePath
     ) {
         this.scanner = scanner;
         this.chunker = chunker;
         this.embedder = embedder;
         this.repo = repo;
-        this.fieldIndex = fieldIndex;
+        this.allowedBasePath = Path.of(allowedBasePath).toAbsolutePath().normalize();
     }
 
     @Override
     public IndexResult indexPath(String rootPath, String knowledgeBase) throws IOException {
+        return indexPath("default", rootPath, knowledgeBase);
+    }
+
+    @Override
+    public IndexResult indexPath(String tenantId, String rootPath, String knowledgeBase) throws IOException {
 
         Path root = Path.of(rootPath).normalize().toAbsolutePath();
+
+        if (!root.startsWith(allowedBasePath)) {
+            throw new IllegalArgumentException("Caminho fora da área permitida para indexação: " + root);
+        }
 
         if (!Files.exists(root)) {
             throw new IllegalArgumentException("Caminho não existe: " + root);
@@ -49,10 +58,10 @@ public class DefaultIndexService implements IndexService {
         }
 
         UUID jobId = UUID.randomUUID();
-        String tenantId = "default"; // 🔒 por enquanto explícito
-
         int fileCount = 0;
         int chunkCount = 0;
+
+        repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
 
         for (Path file : scanner.scan(root)) {
             fileCount++;
@@ -63,13 +72,6 @@ public class DefaultIndexService implements IndexService {
             } catch (Exception e) {
                 continue;
             }
-
-            fieldIndex.indexFile(
-                    tenantId,
-                    knowledgeBase,
-                    file.toString(),
-                    content
-            );
 
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;

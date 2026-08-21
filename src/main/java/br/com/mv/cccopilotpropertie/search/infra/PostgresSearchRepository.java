@@ -24,10 +24,11 @@ public class PostgresSearchRepository implements SearchRepository {
             int limit
     ) {
         return jdbc.query("""
-                        SELECT path, content, 1.0 AS score
+                        SELECT path, content, 1 - (embedding <=> CAST(? AS vector)) AS score
                         FROM code_embeddings
                         WHERE tenant_id = ?
                           AND knowledge_base = ?
+                        ORDER BY embedding <=> CAST(? AS vector)
                         LIMIT ?
                         """,
                 (rs, i) -> new SearchResult(
@@ -35,8 +36,10 @@ public class PostgresSearchRepository implements SearchRepository {
                         rs.getString("content"),
                         rs.getDouble("score")
                 ),
+                vectorLiteral(vector),
                 tenantId,
                 knowledgeBase,
+                vectorLiteral(vector),
                 limit
         );
     }
@@ -97,7 +100,15 @@ public class PostgresSearchRepository implements SearchRepository {
             String tenantId,
             String dtoName
     ) {
-        return Optional.empty(); // ok por enquanto
+        return jdbc.query("""
+                        SELECT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ? AND path ILIKE ?
+                        LIMIT 1
+                        """,
+                rs -> rs.next() ? Optional.of(new SearchResult(
+                        rs.getString("path"), rs.getString("content"), 1.0)) : Optional.empty(),
+                tenantId, "%/" + dtoName + ".java");
     }
 
     @Override
@@ -106,7 +117,13 @@ public class PostgresSearchRepository implements SearchRepository {
             String excludeKb,
             String dtoName
     ) {
-        return List.of();
+        return jdbc.query("""
+                        SELECT DISTINCT path, content, 1.0 AS score
+                        FROM code_embeddings
+                        WHERE tenant_id = ? AND knowledge_base <> ? AND content ILIKE ?
+                        """,
+                (rs, i) -> new SearchResult(rs.getString("path"), rs.getString("content"), 1.0),
+                tenantId, excludeKb, "%" + dtoName + "%");
     }
 
     @Override
@@ -143,6 +160,15 @@ public class PostgresSearchRepository implements SearchRepository {
             String knowledgeBase,
             String dtoName
     ) {
-        return List.of();
+        return findEndpointsUsingDto(tenantId, knowledgeBase, dtoName);
+    }
+
+    private String vectorLiteral(float[] vector) {
+        StringBuilder value = new StringBuilder("[");
+        for (int i = 0; i < vector.length; i++) {
+            if (i > 0) value.append(',');
+            value.append(vector[i]);
+        }
+        return value.append(']').toString();
     }
 }

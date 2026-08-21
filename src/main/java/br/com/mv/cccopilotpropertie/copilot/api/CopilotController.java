@@ -2,13 +2,14 @@ package br.com.mv.cccopilotpropertie.copilot.api;
 
 import br.com.mv.cccopilotpropertie.copilot.application.CopilotService;
 import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/copilot")
+@Tag(name = "Copilot (legado)", description = "Endpoint legado para perguntas sem vínculo de projeto")
 public class CopilotController {
 
     private final CopilotService copilot;
@@ -18,13 +19,8 @@ public class CopilotController {
     }
 
     @PostMapping("/ask")
-    public CopilotAnswer ask(@RequestBody AskRequest req) {
-        return copilot.ask(
-                req.tenantId(),
-                req.knowledgeBase(),
-                req.question()
-        );
+    @Operation(summary = "Pergunta ao agente (legado)", description = "Informe `tenantId`, `knowledgeBase`, `question` e opcionalmente `sessionId`. Prefira o endpoint `/projects/{id}/ask`.")
+    public CopilotAnswer ask(@Valid @RequestBody AskRequest req) {
+        return copilot.ask(req.tenantId(), req.knowledgeBase(), req.question(), req.sessionId());
     }
-
 }
-

@@ -6,5 +6,7 @@ public interface IndexService {
 
     IndexResult indexPath(String path, String knowledgeBase) throws IOException;
 
+    IndexResult indexPath(String tenantId, String path, String knowledgeBase) throws IOException;
+
 
 }

@@ -7,5 +7,5 @@ public final class EmbeddingConfig {
         // impede instanciação
     }
 
-    public static final int DIMENSION = 10;
+    public static final int DIMENSION = 1536;
 }

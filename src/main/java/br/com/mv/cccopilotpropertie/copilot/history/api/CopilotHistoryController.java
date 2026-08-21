@@ -2,17 +2,15 @@ package br.com.mv.cccopilotpropertie.copilot.history.api;
 
 import br.com.mv.cccopilotpropertie.copilot.history.domain.CopilotInteractionEntity;
 import br.com.mv.cccopilotpropertie.copilot.history.infra.CopilotInteractionRepository;
-
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/history")
+@Tag(name = "Histórico", description = "Histórico paginado de interações com o agente")
 public class CopilotHistoryController {
 
     private final CopilotInteractionRepository repo;
@@ -22,6 +20,7 @@ public class CopilotHistoryController {
     }
 
     @GetMapping
+    @Operation(summary = "Lista histórico de interações")
     public Page<CopilotHistoryResponse> list(
             @RequestParam String tenantId,
             @RequestParam(required = false) String knowledgeBase,

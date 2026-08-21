@@ -1,2 +1,50 @@
-openai:
-  api-key: ${OPENAI_API_KEY}
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/copilot}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+  sql:
+    init:
+      mode: always
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:mock}
+
+indexer:
+  base-path: ${INDEXER_BASE_PATH:.}
+
+api:
+  key: ${API_KEY:local-dev-key}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+copilot:
+  ci:
+    fail-on-critical: true
+
+  copilot:
+    policy:
+      allow-contract-dto: true
+      allow-internal-dto-leak: false
+
+    ci:
+      fail-on-critical: true
+
+
+
+llm:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_MODEL:gpt-4.1-mini}

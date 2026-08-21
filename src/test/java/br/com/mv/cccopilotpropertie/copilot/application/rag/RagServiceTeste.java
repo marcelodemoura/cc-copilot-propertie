@@ -1,37 +1,47 @@
 package br.com.mv.cccopilotpropertie.copilot.application.rag;
 
-import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
-import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
-import br.com.mv.cccopilotpropertie.copilot.rag.application.RagService;
+import br.com.mv.cccopilotpropertie.copilot.agent.AgentToolExecutor;
+import br.com.mv.cccopilotpropertie.copilot.alert.AlertService;
+import br.com.mv.cccopilotpropertie.copilot.audit.AuditService;
+import br.com.mv.cccopilotpropertie.copilot.breaking.BreakingChangeAnalyzer;
+import br.com.mv.cccopilotpropertie.search.application.SearchService;
+import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
+import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.util.List;
+import java.util.Optional;
 
-@SpringBootTest
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.*;
+
 class RagServiceTest {
-
-    @Autowired
-    RagService ragService;
 
     @Test
     void deveGerarRiscoAltoParaDtoDeContratoSemValidacao() {
+        SearchRepository repository = mock(SearchRepository.class);
+        when(repository.findUsagesByClassName("default", "cliente-ws", "EmpresaDTO"))
+                .thenReturn(List.of(new SearchResult("EmpresaDTO.java", "public class EmpresaDTO {}", 1.0)));
+        when(repository.findEndpointsUsingDto("default", "cliente-ws", "EmpresaDTO"))
+                .thenReturn(List.of(new SearchResult("EmpresaController.java", "@RestController", 1.0)));
+        when(repository.findUsagesInOtherKnowledgeBases("default", "cliente-ws", "EmpresaDTO"))
+                .thenReturn(List.of());
+        when(repository.findByClassName("default", "cliente-ws", "EmpresaDTO"))
+                .thenReturn(Optional.of(new SearchResult("EmpresaDTO.java", "public class EmpresaDTO {}", 1.0)));
 
-        CopilotAnswer answer = ragService.ask(
-                "default",
-                "cliente-ws",
-                "Existe risco no uso do Empresa DTO?"
+        AgentToolExecutor executor = new AgentToolExecutor(
+                mock(SearchService.class), repository,
+                new BreakingChangeAnalyzer(), new AlertService(), mock(AuditService.class)
         );
 
-        assertNotNull(answer.structured());
-        assertTrue(answer.structured() instanceof DtoAuditResult);
+        String result = executor.execute(
+                "audit_dto",
+                "{\"dtoName\": \"EmpresaDTO\"}",
+                "default",
+                "cliente-ws"
+        );
 
-        DtoAuditResult audit = (DtoAuditResult) answer.structured();
-
-        assertEquals("ALTO", audit.riskLevel());
-        assertTrue(audit.isContractDto());
-
+        assertTrue(result.contains("ALTO"), "Esperava risco ALTO mas foi: " + result);
+        assertTrue(result.contains("Contrato externo: SIM"), "Esperava contrato externo: " + result);
     }
 }
-

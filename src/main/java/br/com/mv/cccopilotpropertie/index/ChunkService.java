@@ -36,6 +36,10 @@ public class ChunkService {
             chunks.addAll(chunkFallback(block));
         }
 
+        if (chunks.isEmpty() && !text.isBlank()) {
+            chunks.addAll(chunkFallback(text));
+        }
+
         return chunks;
     }
     /* ===================== SERVICE ===================== */

@@ -7,7 +7,9 @@ public record CopilotAnswer(
         List<Source> sources,
         double confidence,
         Object structured,
-        Object alert
+        Object alert,
+        String suggestedPatch,
+        String plan
 ) {
 
     public static CopilotAnswer simple(String message) {
@@ -15,6 +17,8 @@ public record CopilotAnswer(
                 message,
                 List.of(),
                 1.0,
+                null,
+                null,
                 null,
                 null
         );
@@ -25,6 +29,8 @@ public record CopilotAnswer(
                 message,
                 List.of(),
                 confidence,
+                null,
+                null,
                 null,
                 null
         );
