@@ -35,3 +35,8 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Secrets ###
+.env
+application-openai.yaml
+src/main/resources/application-openai.yaml

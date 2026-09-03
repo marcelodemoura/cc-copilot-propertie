@@ -20,6 +20,7 @@ public class CopilotInteractionEntity {
 
     private String tenantId;
     private String knowledgeBase;
+    private String sessionId;
 
     @Column(columnDefinition = "TEXT")
     private String question;
@@ -34,12 +35,14 @@ public class CopilotInteractionEntity {
     public CopilotInteractionEntity(
             String tenantId,
             String knowledgeBase,
+            String sessionId,
             String question,
             String answer,
             double confidence
     ) {
         this.tenantId = tenantId;
         this.knowledgeBase = knowledgeBase;
+        this.sessionId = sessionId;
         this.question = question;
         this.answer = answer;
         this.confidence = confidence;

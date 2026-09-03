@@ -9,13 +9,13 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
-@Profile("openai")
+@Profile("!mock")
 public class OpenAiReRanker implements ReRanker {
 
     private final String apiKey;
 
     public OpenAiReRanker(
-            @Value("${llm.openai.api-key}") String apiKey
+            @Value("${llm.openai.api-key:}") String apiKey
     ) {
         this.apiKey = apiKey;
     }

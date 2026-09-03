@@ -8,10 +8,11 @@ import br.com.mv.cccopilotpropertie.copilot.domain.DtoAuditResult;
 import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,9 +37,12 @@ public class AgentToolExecutor {
         this.auditService = auditService;
     }
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+
     public String execute(String toolName, String argsJson, String tenantId, String kb) {
         try {
-            Map<String, Object> args = parseArgs(argsJson);
+            Map<String, Object> args = MAPPER.readValue(argsJson, MAP_TYPE);
             return switch (toolName) {
                 case "search_code" -> searchCode(args, tenantId, kb);
                 case "find_dto_definition" -> findDtoDefinition(args, tenantId, kb);
@@ -158,22 +162,4 @@ public class AgentToolExecutor {
         return sb.toString();
     }
 
-    /** Parser minimalista para JSON flat gerado pelo LLM (sem arrays aninhados). */
-    private Map<String, Object> parseArgs(String json) {
-        Map<String, Object> result = new HashMap<>();
-        if (json == null || json.isBlank()) return result;
-        String stripped = json.trim().replaceAll("^\\{", "").replaceAll("\\}$", "");
-        for (String pair : stripped.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)")) {
-            String[] kv = pair.split(":", 2);
-            if (kv.length != 2) continue;
-            String key = kv[0].trim().replaceAll("\"", "");
-            String val = kv[1].trim().replaceAll("^\"|\"$", "");
-            try {
-                result.put(key, Integer.parseInt(val));
-            } catch (NumberFormatException e) {
-                result.put(key, val);
-            }
-        }
-        return result;
-    }
 }

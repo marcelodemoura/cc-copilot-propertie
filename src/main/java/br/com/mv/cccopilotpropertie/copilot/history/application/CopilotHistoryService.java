@@ -14,18 +14,9 @@ public class CopilotHistoryService {
         this.repo = repo;
     }
 
-    public void save(
-            String tenant,
-            String kb,
-            String question,
-            CopilotAnswer answer
-    ) {
+    public void save(String tenantId, String kb, String sessionId, String question, CopilotAnswer answer) {
         repo.save(new CopilotInteractionEntity(
-                tenant,
-                kb,
-                question,
-                answer.answer(),
-                answer.confidence()
+                tenantId, kb, sessionId, question, answer.answer(), answer.confidence()
         ));
     }
 }

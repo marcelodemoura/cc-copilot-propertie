@@ -30,6 +30,8 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     testRuntimeOnly 'com.h2database:h2'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+    implementation 'me.paulschwarz:spring-dotenv:4.0.0'
+    implementation 'dev.langchain4j:langchain4j:0.36.2'
 }
 
 tasks.named('test') {

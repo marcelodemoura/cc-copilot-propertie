@@ -40,6 +40,6 @@ class CopilotServiceTest {
 
         assertEquals(expected, result);
         verify(agentLoop).run(tenantId, kb, question, null);
-        verify(historyService).save(tenantId, kb, question, expected);
+        verify(historyService).save(tenantId, kb, null, question, expected);
     }
 }

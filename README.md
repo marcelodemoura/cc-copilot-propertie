@@ -164,7 +164,7 @@ Perguntas sequenciais na mesma sessão funcionam com referências implícitas:
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `mock` | `mock` (sem OpenAI) ou `openai` |
 | `OPENAI_API_KEY` | — | Chave da API OpenAI (obrigatório no perfil `openai`) |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Modelo a usar |
+| `OPENAI_MODEL` | `gpt-5-mini` | Modelo a usar |
 | `API_KEY` | `local-dev-key` | Chave do header `X-API-Key` |
 | `DB_URL` | `jdbc:postgresql://localhost:5434/copilot` | URL do banco |
 | `DB_USERNAME` | `postgres` | Usuário do banco |

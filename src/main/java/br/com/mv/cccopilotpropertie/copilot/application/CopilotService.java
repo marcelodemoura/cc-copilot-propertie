@@ -18,7 +18,7 @@ public class CopilotService {
 
     public CopilotAnswer ask(String tenantId, String kb, String question, String sessionId) {
         CopilotAnswer answer = agentLoop.run(tenantId, kb, question, sessionId);
-        historyService.save(tenantId, kb, question, answer);
+        historyService.save(tenantId, kb, sessionId, question, answer);
         return answer;
     }
 

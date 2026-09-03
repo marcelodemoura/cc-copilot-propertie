@@ -4,7 +4,6 @@ import br.com.mv.cccopilotpropertie.copilot.domain.CopilotAnswer;
 import br.com.mv.cccopilotpropertie.copilot.history.infra.CopilotInteractionRepository;
 import br.com.mv.cccopilotpropertie.llm.application.LlmClient;
 import br.com.mv.cccopilotpropertie.llm.application.ToolCallResult;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -86,12 +85,15 @@ public class AgentLoop {
     private void loadHistory(String tenantId, String kb, String sessionId, List<Map<String, Object>> messages) {
         if (sessionId == null || sessionId.isBlank()) return;
 
-        historyRepo.findByTenantIdAndKnowledgeBase(tenantId, kb, PageRequest.of(0, 6))
-                .getContent()
-                .forEach(h -> {
-                    messages.add(Map.of("role", "user", "content", h.getQuestion()));
-                    messages.add(Map.of("role", "assistant", "content", h.getAnswer() != null ? h.getAnswer() : ""));
-                });
+        var history = historyRepo
+                .findTop6ByTenantIdAndKnowledgeBaseAndSessionIdOrderByCreatedAtDesc(tenantId, kb, sessionId);
+
+        Collections.reverse(history);
+
+        history.forEach(h -> {
+            messages.add(Map.of("role", "user", "content", h.getQuestion()));
+            messages.add(Map.of("role", "assistant", "content", h.getAnswer() != null ? h.getAnswer() : ""));
+        });
     }
 
     private Map<String, Object> assistantToolCallMessage(List<ToolCallResult.ToolCall> toolCalls) {
