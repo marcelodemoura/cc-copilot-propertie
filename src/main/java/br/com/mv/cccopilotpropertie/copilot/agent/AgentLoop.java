@@ -7,6 +7,8 @@ import br.com.mv.cccopilotpropertie.llm.application.ToolCallResult;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class AgentLoop {
@@ -15,14 +17,17 @@ public class AgentLoop {
 
     private static final String SYSTEM_PROMPT = """
             Você é um copiloto técnico especializado em análise de projetos de software Java/Kotlin.
-            Você tem acesso a ferramentas para buscar código, analisar DTOs, detectar breaking changes e auditar contratos HTTP.
+            Você tem acesso a ferramentas para buscar código, ler arquivos na íntegra, navegar em diretórios, analisar DTOs, detectar breaking changes e auditar contratos HTTP.
             
             Regras:
             - Use as ferramentas disponíveis para coletar informações antes de responder.
+            - Quando encontrar um arquivo relevante via busca, use 'read_file' se precisar de mais contexto ao redor do código.
             - Nunca invente informações — baseie-se apenas no que as ferramentas retornarem.
             - Se não encontrar informação suficiente, diga claramente.
             - Seja direto e técnico nas respostas.
             - Quando identificar riscos ou breaking changes, seja explícito sobre o impacto.
+            - Se o usuário pedir refatoração, correção ou alteração de código, forneça um bloco ```diff ... ``` ou ```patch ... ``` com a mudança sugerida.
+            - Se a resposta envolver múltiplos passos, inclua uma seção '### Plano de Ação:' detalhando a sequência recomendada.
             """;
 
     private final LlmClient llm;
@@ -39,6 +44,14 @@ public class AgentLoop {
     }
 
     public CopilotAnswer run(String tenantId, String kb, String question, String sessionId) {
+        return run(tenantId, kb, question, sessionId, null);
+    }
+
+    public CopilotAnswer run(String tenantId, String kb, String question, String sessionId, AgentProgressListener listener) {
+
+        if (listener != null) {
+            listener.onProgress("status", "Analisando pergunta e contexto recente...");
+        }
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", SYSTEM_PROMPT));
@@ -51,11 +64,30 @@ public class AgentLoop {
         List<CopilotAnswer.Source> sources = new ArrayList<>();
 
         for (int i = 0; i < MAX_ITERATIONS; i++) {
+            if (listener != null) {
+                listener.onProgress("thinking", "Avaliando código e decidindo passos (iteração " + (i + 1) + ")...");
+            }
+
             ToolCallResult result = llm.chat(messages, tools.all());
 
             if (!result.hasToolCalls()) {
                 // LLM deu resposta final
-                return new CopilotAnswer(result.text(), sources, 1.0, null, null, null, null);
+                String text = result.text();
+                String patch = extractPatch(text);
+                String plan = extractPlan(text);
+                CopilotAnswer finalAnswer = new CopilotAnswer(text, sources, 1.0, null, null, patch, plan);
+                if (listener != null) {
+                    listener.onProgress("answer", finalAnswer);
+                }
+                return finalAnswer;
+            }
+
+            if (listener != null) {
+                var callsSummary = result.toolCalls().stream().map(tc -> Map.of(
+                        "tool", tc.name(),
+                        "arguments", tc.argumentsJson()
+                )).toList();
+                listener.onProgress("tool_calls", callsSummary);
             }
 
             // adiciona a mensagem do assistente com os tool_calls
@@ -63,10 +95,21 @@ public class AgentLoop {
 
             // executa cada tool e devolve o resultado ao LLM
             for (ToolCallResult.ToolCall tc : result.toolCalls()) {
+                if (listener != null) {
+                    listener.onProgress("tool_start", "Executando ferramenta: " + tc.name());
+                }
+
                 String toolResult = executor.execute(tc.name(), tc.argumentsJson(), tenantId, kb);
 
                 // registra fontes para rastreabilidade
                 extractSources(tc.name(), toolResult, sources);
+
+                if (listener != null) {
+                    listener.onProgress("tool_done", Map.of(
+                            "tool", tc.name(),
+                            "preview", toolResult.substring(0, Math.min(160, toolResult.length()))
+                    ));
+                }
 
                 messages.add(Map.of(
                         "role", "tool",
@@ -124,5 +167,23 @@ public class AgentLoop {
                 }
             }
         }
+    }
+
+    private String extractPatch(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher matcher = Pattern.compile("```(?:diff|patch)\\s*\\n([\\s\\S]*?)```").matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return null;
+    }
+
+    private String extractPlan(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher matcher = Pattern.compile("(?i)#{1,3}\\s*Plano(?:\\s+de\\s+Ação)?[:\\s]*\\n([\\s\\S]*?)(?:\\n#{1,3}\\s+|$)").matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return null;
     }
 }

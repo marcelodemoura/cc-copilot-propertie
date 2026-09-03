@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CC Copilot Properties — IA Autônoma de Código</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked.js para Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js para Sintaxe de Código -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
+            darkbg: '#0f172a',
+            darkpanel: '#1e293b',
+            darkborder: '#334155'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    pre code { border-radius: 0.5rem; font-size: 0.875rem; }
+    .markdown-body p { margin-bottom: 0.75rem; }
+    .markdown-body ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-body ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 700; margin-top: 1rem; margin-bottom: 0.5rem; }
+    .markdown-body h1 { font-size: 1.5rem; }
+    .markdown-body h2 { font-size: 1.25rem; }
+    .markdown-body h3 { font-size: 1.1rem; }
+    .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+    .markdown-body th, .markdown-body td { border: 1px solid #475569; padding: 0.5rem; }
+    .markdown-body th { background-color: #334155; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-darkbg text-slate-100 flex h-screen overflow-hidden font-sans">
+
+  <!-- BARRA LATERAL (PROJETOS) -->
+  <aside class="w-80 bg-darkpanel border-r border-darkborder flex flex-col flex-shrink-0">
+    <div class="p-4 border-b border-darkborder flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400 font-bold text-lg">🤖</div>
+        <div>
+          <h1 class="font-bold text-sm tracking-wide text-white">CC Copilot</h1>
+          <p class="text-xs text-emerald-400">AI Codebase Agent</p>
+        </div>
+      </div>
+      <button onclick="openModal()" class="p-1.5 rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Cadastrar Projeto">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      </button>
+    </div>
+
+    <!-- CONFIGURAÇÕES DE API KEY -->
+    <div class="p-3 bg-slate-900/60 border-b border-darkborder text-xs space-y-1.5">
+      <div class="flex justify-between items-center text-slate-400">
+        <span>X-API-Key:</span>
+        <input id="apiKeyInput" type="password" value="local-dev-key" class="bg-slate-800 text-slate-200 px-2 py-0.5 rounded border border-slate-700 w-36 text-right focus:outline-none focus:border-emerald-500" onchange="saveApiKey(this.value)">
+      </div>
+      <div class="flex justify-between items-center text-slate-400">
+        <span>Sessão:</span>
+        <input id="sessionIdInput" type="text" value="dev-sess-1" class="bg-slate-800 text-slate-200 px-2 py-0.5 rounded border border-slate-700 w-36 text-right focus:outline-none focus:border-emerald-500">
+      </div>
+    </div>
+
+    <!-- LISTA DE PROJETOS -->
+    <div class="flex-1 overflow-y-auto p-3 space-y-2" id="projectList">
+      <div class="text-center py-8 text-slate-500 text-xs">Carregando projetos...</div>
+    </div>
+
+    <!-- STATUS DO PROJETO SELECIONADO & INDEXAÇÃO -->
+    <div id="projectActions" class="p-4 border-t border-darkborder bg-slate-900/40 hidden space-y-3">
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-slate-400">Projeto selecionado:</span>
+        <span id="selectedProjectName" class="font-semibold text-emerald-400 truncate max-w-[120px]"></span>
+      </div>
+
+      <!-- Barra de progresso da indexação -->
+      <div id="indexProgressContainer" class="hidden space-y-1">
+        <div class="flex justify-between text-xs text-slate-400">
+          <span id="indexStatusText">Indexando...</span>
+          <span id="indexPercent">0%</span>
+        </div>
+        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div id="indexProgressBar" class="bg-emerald-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <p id="indexCurrentFile" class="text-[10px] text-slate-400 truncate"></p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="startIndexAsync()" id="btnIndexAsync" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium transition flex items-center justify-center space-x-1">
+          <span>⚡ Indexar</span>
+        </button>
+        <button onclick="checkIndexStatus()" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs transition">
+          Status
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ÁREA CENTRAL (CHAT) -->
+  <main class="flex-1 flex flex-col bg-darkbg overflow-hidden">
+    <!-- HEADER DO CHAT -->
+    <header class="h-14 border-b border-darkborder flex items-center justify-between px-6 bg-darkpanel/40">
+      <div class="flex items-center space-x-3">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="headerProjectTitle" class="text-sm font-semibold text-slate-200">Selecione um projeto para começar</span>
+      </div>
+      <div class="flex items-center space-x-4 text-xs text-slate-400">
+        <label class="flex items-center space-x-1.5 cursor-pointer">
+          <input type="checkbox" id="streamToggle" checked class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0">
+          <span>Streaming SSE</span>
+        </label>
+        <button onclick="clearChat()" class="hover:text-white transition">Limpar Chat</button>
+      </div>
+    </header>
+
+    <!-- MENSAGENS -->
+    <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-6">
+      <!-- MENSAGEM INICIAL DE BOAS VINDAS -->
+      <div id="welcomeCard" class="max-w-2xl mx-auto my-12 text-center space-y-4">
+        <div class="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center text-3xl mx-auto text-emerald-400">
+          ⚡
+        </div>
+        <h2 class="text-xl font-bold text-white">Copiloto Técnico Autônomo</h2>
+        <p class="text-sm text-slate-400">
+          Selecione ou cadastre um projeto na barra lateral e faça perguntas sobre a arquitetura, auditorias de DTOs, análise de breaking changes ou solicite código refatorado.
+        </p>
+
+        <div class="grid grid-cols-2 gap-3 text-left pt-4">
+          <button onclick="quickAsk('O que esse projeto faz e quais são as principais entidades?')" class="p-3 bg-darkpanel hover:bg-slate-700/60 rounded-lg border border-darkborder text-xs text-slate-300 transition">
+            💡 "O que esse projeto faz?"
+          </button>
+          <button onclick="quickAsk('Quais endpoints REST existem no projeto?')" class="p-3 bg-darkpanel hover:bg-slate-700/60 rounded-lg border border-darkborder text-xs text-slate-300 transition">
+            🔌 "Quais endpoints REST existem?"
+          </button>
+          <button onclick="quickAsk('Faça uma auditoria dos DTOs deste projeto')" class="p-3 bg-darkpanel hover:bg-slate-700/60 rounded-lg border border-darkborder text-xs text-slate-300 transition">
+            🛡️ "Faça uma auditoria dos DTOs"
+          </button>
+          <button onclick="quickAsk('Como posso refatorar para adicionar um novo campo com segurança?')" class="p-3 bg-darkpanel hover:bg-slate-700/60 rounded-lg border border-darkborder text-xs text-slate-300 transition">
+            📝 "Como refatorar sem quebrar contrato?"
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CAMPO DE ENTRADA -->
+    <div class="p-4 border-t border-darkborder bg-darkpanel/40">
+      <div class="max-w-4xl mx-auto relative">
+        <textarea id="questionInput" rows="2" placeholder="Faça uma pergunta sobre o código do projeto... (Enter para enviar, Shift+Enter para nova linha)" class="w-full bg-slate-900 border border-darkborder rounded-xl px-4 py-3 pr-24 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 resize-none" onkeydown="handleKey(event)"></textarea>
+        <button id="sendBtn" onclick="sendQuestion()" class="absolute right-3 bottom-3.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition flex items-center space-x-1.5">
+          <span>Enviar</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL PARA CADASTRAR NOVO PROJETO -->
+  <div id="projectModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-darkpanel border border-darkborder rounded-xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-darkborder pb-3">
+        <h3 class="font-bold text-white text-base">Cadastrar Novo Projeto</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Nome do Projeto:</label>
+          <input id="newProjName" type="text" placeholder="ex: meu-backend" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Caminho Absoluto (rootPath):</label>
+          <input id="newProjPath" type="text" placeholder="ex: /home/marcelo/IdeaProjects/meu-backend" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Tenant ID:</label>
+          <input id="newProjTenant" type="text" value="default" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+        </div>
+      </div>
+      <div class="flex justify-end space-x-2 pt-2 border-t border-darkborder">
+        <button onclick="closeModal()" class="px-3 py-1.5 rounded text-xs text-slate-400 hover:text-white">Cancelar</button>
+        <button onclick="saveProject()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition">Cadastrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT DA APLICAÇÃO -->
+  <script>
+    let projects = [];
+    let selectedProject = null;
+    let pollInterval = null;
+
+    // Inicialização
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedKey = localStorage.getItem('cc_api_key');
+      if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
+      loadProjects();
+    });
+
+    function saveApiKey(key) {
+      localStorage.setItem('cc_api_key', key);
+    }
+
+    function getApiKey() {
+      return document.getElementById('apiKeyInput').value.trim() || 'local-dev-key';
+    }
+
+    function getSessionId() {
+      return document.getElementById('sessionIdInput').value.trim() || 'default-session';
+    }
+
+    // Carregar Projetos
+    async function loadProjects() {
+      try {
+        const res = await fetch('/projects', { headers: { 'X-API-Key': getApiKey() } });
+        if (!res.ok) throw new Error('Erro ao listar projetos');
+        projects = await res.json();
+        renderProjects();
+      } catch (err) {
+        document.getElementById('projectList').innerHTML = `<div class="text-xs text-red-400 p-2 text-center">Falha ao carregar projetos. Verifique sua X-API-Key.</div>`;
+      }
+    }
+
+    function renderProjects() {
+      const container = document.getElementById('projectList');
+      if (!projects.length) {
+        container.innerHTML = `<div class="text-xs text-slate-500 text-center py-6">Nenhum projeto cadastrado.<br>Clique em + para adicionar.</div>`;
+        return;
+      }
+      container.innerHTML = projects.map(p => `
+        <div onclick="selectProject('${p.id}')" class="p-3 rounded-lg border cursor-pointer transition ${selectedProject && selectedProject.id === p.id ? 'bg-emerald-950/40 border-emerald-500 text-white' : 'bg-slate-800/40 border-slate-700/60 hover:bg-slate-800 text-slate-300'}">
+          <div class="font-semibold text-xs text-white truncate">${escapeHtml(p.name)}</div>
+          <div class="text-[11px] text-slate-400 truncate mt-0.5">${escapeHtml(p.rootPath)}</div>
+        </div>
+      `).join('');
+    }
+
+    function selectProject(id) {
+      selectedProject = projects.find(p => p.id === id);
+      renderProjects();
+      if (selectedProject) {
+        document.getElementById('projectActions').classList.remove('hidden');
+        document.getElementById('selectedProjectName').innerText = selectedProject.name;
+        document.getElementById('headerProjectTitle').innerText = `Projeto: ${selectedProject.name}`;
+        checkIndexStatus();
+      }
+    }
+
+    // Modal
+    function openModal() { document.getElementById('projectModal').classList.remove('hidden'); }
+    function closeModal() { document.getElementById('projectModal').classList.add('hidden'); }
+
+    async function saveProject() {
+      const name = document.getElementById('newProjName').value.trim();
+      const rootPath = document.getElementById('newProjPath').value.trim();
+      const tenantId = document.getElementById('newProjTenant').value.trim() || 'default';
+
+      if (!name || !rootPath) return alert('Preencha nome e caminho');
+
+      try {
+        const res = await fetch('/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
+          body: JSON.stringify({ name, rootPath, tenantId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        closeModal();
+        await loadProjects();
+      } catch (e) {
+        alert('Erro ao cadastrar: ' + e.message);
+      }
+    }
+
+    // Indexação Assíncrona com Progresso
+    async function startIndexAsync() {
+      if (!selectedProject) return;
+      const btn = document.getElementById('btnIndexAsync');
+      btn.disabled = true;
+      btn.innerText = 'Iniciando...';
+
+      try {
+        const res = await fetch(`/projects/${selectedProject.id}/index/async`, {
+          method: 'POST',
+          headers: { 'X-API-Key': getApiKey() }
+        });
+        if (!res.ok) throw new Error(await res.text());
+        startPollingProgress();
+      } catch (e) {
+        alert('Erro ao iniciar indexação: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ Indexar';
+      }
+    }
+
+    function startPollingProgress() {
+      if (pollInterval) clearInterval(pollInterval);
+      document.getElementById('indexProgressContainer').classList.remove('hidden');
+      pollInterval = setInterval(checkIndexStatus, 1000);
+      checkIndexStatus();
+    }
+
+    async function checkIndexStatus() {
+      if (!selectedProject) return;
+      try {
+        const res = await fetch(`/projects/${selectedProject.id}/index/status`, {
+          headers: { 'X-API-Key': getApiKey() }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        updateProgressBar(data);
+      } catch (e) {}
+    }
+
+    function updateProgressBar(data) {
+      const container = document.getElementById('indexProgressContainer');
+      const text = document.getElementById('indexStatusText');
+      const percent = document.getElementById('indexPercent');
+      const bar = document.getElementById('indexProgressBar');
+      const file = document.getElementById('indexCurrentFile');
+
+      container.classList.remove('hidden');
+      text.innerText = `Status: ${data.status}`;
+      percent.innerText = `${data.progressPercent}%`;
+      bar.style.width = `${data.progressPercent}%`;
+      file.innerText = data.currentFile ? `${data.processedFiles}/${data.totalFiles} — ${data.currentFile}` : '';
+
+      if (data.status === 'COMPLETED') {
+        text.innerText = `Concluído (${data.totalFiles} arqs, ${data.totalChunks} chunks)`;
+        bar.style.width = '100%';
+        if (pollInterval) clearInterval(pollInterval);
+      } else if (data.status === 'FAILED') {
+        text.innerText = `Falhou: ${data.errorMessage || 'Erro'}`;
+        bar.classList.replace('bg-emerald-500', 'bg-red-500');
+        if (pollInterval) clearInterval(pollInterval);
+      }
+    }
+
+    // Chat
+    function handleKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuestion();
+      }
+    }
+
+    function quickAsk(q) {
+      document.getElementById('questionInput').value = q;
+      sendQuestion();
+    }
+
+    function clearChat() {
+      document.getElementById('chatMessages').innerHTML = '';
+      if (!selectedProject) document.getElementById('welcomeCard').classList.remove('hidden');
+    }
+
+    async function sendQuestion() {
+      const input = document.getElementById('questionInput');
+      const question = input.value.trim();
+      if (!question) return;
+
+      if (!selectedProject) {
+        alert('Selecione um projeto na barra lateral primeiro!');
+        return;
+      }
+
+      const welcome = document.getElementById('welcomeCard');
+      if (welcome) welcome.remove();
+
+      input.value = '';
+      appendUserMessage(question);
+
+      const streamEnabled = document.getElementById('streamToggle').checked;
+      if (streamEnabled) {
+        await askWithStream(selectedProject.id, question);
+      } else {
+        await askNormal(selectedProject.id, question);
+      }
+    }
+
+    function appendUserMessage(text) {
+      const container = document.getElementById('chatMessages');
+      container.insertAdjacentHTML('beforeend', `
+        <div class="flex justify-end">
+          <div class="bg-emerald-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-none max-w-2xl text-sm shadow">
+            ${escapeHtml(text)}
+          </div>
+        </div>
+      `);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function askNormal(projectId, question) {
+      const botMsgId = 'msg-' + Date.now();
+      appendBotPlaceholder(botMsgId);
+
+      try {
+        const res = await fetch(`/projects/${projectId}/ask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
+          body: JSON.stringify({ question, sessionId: getSessionId() })
+        });
+        const data = await res.json();
+        renderBotResponse(botMsgId, data);
+      } catch (e) {
+        updateBotMessage(botMsgId, `<span class="text-red-400">Erro: ${escapeHtml(e.message)}</span>`);
+      }
+    }
+
+    async function askWithStream(projectId, question) {
+      const botMsgId = 'msg-' + Date.now();
+      appendBotPlaceholder(botMsgId);
+
+      const stepsDiv = document.getElementById(`${botMsgId}-steps`);
+      const contentDiv = document.getElementById(`${botMsgId}-content`);
+
+      try {
+        const response = await fetch(`/projects/${projectId}/ask/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
+          body: JSON.stringify({ question, sessionId: getSessionId() })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop(); // mantém o pedaço incompleto
+
+          for (const block of lines) {
+            if (!block.trim()) continue;
+            let eventName = 'message';
+            let dataStr = '';
+
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event:')) eventName = line.replace('event:', '').trim();
+              if (line.startsWith('data:')) dataStr = line.replace('data:', '').trim();
+            }
+
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              handleStreamEvent(eventName, data, stepsDiv, contentDiv, botMsgId);
+            } catch (err) {
+              // se for string pura
+              handleStreamEvent(eventName, dataStr, stepsDiv, contentDiv, botMsgId);
+            }
+          }
+        }
+      } catch (e) {
+        contentDiv.innerHTML = `<span class="text-red-400">Erro na transmissão SSE: ${escapeHtml(e.message)}</span>`;
+      }
+    }
+
+    function handleStreamEvent(eventName, data, stepsDiv, contentDiv, botMsgId) {
+      if (eventName === 'status' || eventName === 'thinking') {
+        stepsDiv.classList.remove('hidden');
+        stepsDiv.insertAdjacentHTML('beforeend', `<div class="text-slate-400 text-xs py-0.5">🧠 ${escapeHtml(typeof data === 'string' ? data : JSON.stringify(data))}</div>`);
+      } else if (eventName === 'tool_start') {
+        stepsDiv.classList.remove('hidden');
+        stepsDiv.insertAdjacentHTML('beforeend', `<div class="text-amber-400 text-xs py-0.5">⚡ ${escapeHtml(typeof data === 'string' ? data : JSON.stringify(data))}</div>`);
+      } else if (eventName === 'tool_done') {
+        stepsDiv.classList.remove('hidden');
+        stepsDiv.insertAdjacentHTML('beforeend', `<div class="text-emerald-400 text-xs py-0.5">✓ Concluído: ${escapeHtml(data.tool)}</div>`);
+      } else if (eventName === 'complete') {
+        renderBotResponse(botMsgId, data);
+      }
+      document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+    }
+
+    function appendBotPlaceholder(id) {
+      const container = document.getElementById('chatMessages');
+      container.insertAdjacentHTML('beforeend', `
+        <div id="${id}" class="flex space-x-3 max-w-3xl">
+          <div class="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 flex-shrink-0 text-sm font-bold">🤖</div>
+          <div class="flex-1 space-y-2">
+            <!-- STEPS / PENSAMENTOS -->
+            <div id="${id}-steps" class="hidden p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg space-y-1"></div>
+            <!-- CONTEÚDO PRINCIPAL -->
+            <div id="${id}-content" class="bg-darkpanel p-4 rounded-2xl rounded-tl-none border border-darkborder text-sm shadow">
+              <span class="animate-pulse text-slate-400">Raciocinando...</span>
+            </div>
+          </div>
+        </div>
+      `);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function renderBotResponse(id, answer) {
+      const contentDiv = document.getElementById(`${id}-content`);
+      if (!contentDiv) return;
+
+      let html = `<div class="markdown-body text-slate-200">${marked.parse(answer.answer || '')}</div>`;
+
+      // Se tiver patch sugerido
+      if (answer.suggestedPatch) {
+        html += `
+          <div class="mt-4 pt-3 border-t border-darkborder">
+            <div class="flex justify-between items-center mb-1 text-xs font-semibold text-emerald-400">
+              <span>🛠️ Patch Sugerido (Diff):</span>
+              <button onclick="copyToClipboard('${btoa(answer.suggestedPatch)}')" class="hover:underline text-[11px] text-slate-400">Copiar</button>
+            </div>
+            <pre><code class="language-diff">${escapeHtml(answer.suggestedPatch)}</code></pre>
+          </div>
+        `;
+      }
+
+      // Se tiver plano
+      if (answer.plan) {
+        html += `
+          <div class="mt-4 p-3 bg-slate-900/80 border border-emerald-500/30 rounded-lg text-xs">
+            <div class="font-bold text-emerald-400 mb-1">📋 Plano de Ação:</div>
+            <div class="text-slate-300 whitespace-pre-wrap">${escapeHtml(answer.plan)}</div>
+          </div>
+        `;
+      }
+
+      // Se tiver fontes
+      if (answer.sources && answer.sources.length > 0) {
+        html += `
+          <div class="mt-3 pt-2 border-t border-slate-800 flex flex-wrap gap-1.5 items-center text-[11px]">
+            <span class="text-slate-500 font-medium">Fontes:</span>
+            ${answer.sources.map(s => `
+              <span class="bg-slate-800 border border-slate-700 text-slate-300 px-2 py-0.5 rounded-full" title="Score: ${s.score}">
+                📄 ${escapeHtml(s.path.split('/').pop())}
+              </span>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      contentDiv.innerHTML = html;
+      contentDiv.querySelectorAll('pre code').forEach((el) => {
+        hljs.highlightElement(el);
+      });
+      document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+    }
+
+    function copyToClipboard(b64) {
+      navigator.clipboard.writeText(atob(b64));
+      alert('Patch copiado para a área de transferência!');
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>

@@ -38,4 +38,17 @@ public class ProjectService {
         ProjectEntity project = get(id);
         return indexService.indexPath(project.getTenantId(), project.getRootPath(), id.toString());
     }
+
+    public br.com.mv.cccopilotpropertie.index.IndexJobStatus indexAsync(UUID id) {
+        ProjectEntity project = get(id);
+        return indexService.indexAsync(project.getTenantId(), project.getRootPath(), id.toString());
+    }
+
+    public java.util.Optional<br.com.mv.cccopilotpropertie.index.IndexJobStatus> getIndexStatus(UUID jobId) {
+        return indexService.getJobStatus(jobId);
+    }
+
+    public java.util.Optional<br.com.mv.cccopilotpropertie.index.IndexJobStatus> getLatestIndexStatus(UUID projectId) {
+        return indexService.getLatestJobStatus(projectId.toString());
+    }
 }

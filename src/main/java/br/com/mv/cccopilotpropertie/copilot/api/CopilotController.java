@@ -23,4 +23,10 @@ public class CopilotController {
     public CopilotAnswer ask(@Valid @RequestBody AskRequest req) {
         return copilot.ask(req.tenantId(), req.knowledgeBase(), req.question(), req.sessionId());
     }
+
+    @PostMapping(value = "/ask/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Pergunta ao agente com streaming (legado)")
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter askStream(@Valid @RequestBody AskRequest req) {
+        return copilot.askStream(req.tenantId(), req.knowledgeBase(), req.question(), req.sessionId());
+    }
 }

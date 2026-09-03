@@ -14,7 +14,7 @@ class AgentToolsTest {
         AgentTools tools = new AgentTools();
         List<Map<String, Object>> all = tools.all();
 
-        assertEquals(7, all.size());
+        assertEquals(9, all.size());
 
         List<String> names = all.stream()
                 .map(m -> (Map<String, Object>) m.get("function"))
@@ -28,5 +28,7 @@ class AgentToolsTest {
         assertTrue(names.contains("find_external_usages"));
         assertTrue(names.contains("analyze_breaking_change"));
         assertTrue(names.contains("audit_dto"));
+        assertTrue(names.contains("read_file"));
+        assertTrue(names.contains("list_files"));
     }
 }

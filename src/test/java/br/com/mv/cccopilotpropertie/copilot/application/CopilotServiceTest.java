@@ -42,4 +42,16 @@ class CopilotServiceTest {
         verify(agentLoop).run(tenantId, kb, question, null);
         verify(historyService).save(tenantId, kb, null, question, expected);
     }
+
+    @Test
+    void should_return_sse_emitter_on_ask_stream() {
+        String tenantId = "tenant-1";
+        String kb = "kb-1";
+        String question = "Como funciona o streaming?";
+        String sessionId = "sess-1";
+
+        var emitter = copilotService.askStream(tenantId, kb, question, sessionId);
+
+        org.junit.jupiter.api.Assertions.assertNotNull(emitter);
+    }
 }

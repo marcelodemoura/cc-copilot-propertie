@@ -62,6 +62,22 @@ public class AgentTools {
         return null;
     }
 
+    @Tool("Lê o conteúdo de um arquivo do projeto pelo caminho relativo ou absoluto com paginação de linhas.")
+    public String read_file(
+            @P("Caminho do arquivo a ser lido") String path,
+            @P(value = "Linha inicial opcional (1-indexado)", required = false) Integer startLine,
+            @P(value = "Linha final opcional (inclusive)", required = false) Integer endLine
+    ) {
+        return null;
+    }
+
+    @Tool("Lista os arquivos e subdiretórios de uma pasta do projeto para explorar a estrutura de pacotes.")
+    public String list_files(
+            @P(value = "Subcaminho relativo ou pasta a listar (vazio para a raiz do projeto)", required = false) String path
+    ) {
+        return null;
+    }
+
     @SuppressWarnings("deprecation")
     public List<Map<String, Object>> all() {
         List<ToolSpecification> specs = ToolSpecifications.toolSpecificationsFrom(this);

@@ -20,13 +20,18 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     }
 
     private static final String[] PUBLIC_PATHS = {
-            "/swagger-ui", "/swagger-ui.html", "/v3/api-docs", "/webjars"
+            "/swagger-ui", "/swagger-ui.html", "/v3/api-docs", "/webjars",
+            "/index.html", "/static", "/favicon.ico"
     };
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
+        if (path.equals("/")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         for (String pub : PUBLIC_PATHS) {
             if (path.startsWith(pub)) {
                 filterChain.doFilter(request, response);
