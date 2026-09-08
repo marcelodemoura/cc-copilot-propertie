@@ -1,6 +1,7 @@
 package br.com.mv.cccopilotpropertie.index;
 
 
+import br.com.mv.cccopilotpropertie.config.EmbeddingConfig;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
 import br.com.mv.cccopilotpropertie.vector.EmbeddingRepository;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -64,6 +67,7 @@ public class DefaultIndexService implements IndexService {
 
         repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
 
+        List<PendingChunk> pending = new ArrayList<>();
         for (Path file : scanner.scan(root)) {
             fileCount++;
 
@@ -76,17 +80,13 @@ public class DefaultIndexService implements IndexService {
 
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;
-
-                repo.save(
-                        UUID.randomUUID(),      // id
-                        tenantId,               // ✅ tenant
-                        knowledgeBase,          // ✅ knowledgeBase
-                        file.toString(),        // path
-                        chunk,                  // content
-                        embedder.embed(chunk)   // embedding
-                );
+                pending.add(new PendingChunk(file.toString(), chunk));
+                if (pending.size() >= BATCH_SIZE) {
+                    flushBatch(pending, tenantId, knowledgeBase);
+                }
             }
         }
+        flushBatch(pending, tenantId, knowledgeBase);
 
         return new IndexResult(jobId, fileCount, chunkCount);
     }
@@ -116,13 +116,14 @@ public class DefaultIndexService implements IndexService {
             try {
                 jobs.put(jobId, jobs.get(jobId).withProgress("SCANNING", 0, 0, 0, "Varrendo arquivos do projeto..."));
 
-                java.util.List<Path> files = scanner.scan(root);
+                List<Path> files = scanner.scan(root);
                 int totalFiles = files.size();
 
                 repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
 
                 int fileCount = 0;
                 int chunkCount = 0;
+                List<PendingChunk> pending = new ArrayList<>();
 
                 for (Path file : files) {
                     fileCount++;
@@ -138,16 +139,14 @@ public class DefaultIndexService implements IndexService {
 
                     for (String chunk : chunker.chunk(content)) {
                         chunkCount++;
-                        repo.save(
-                                UUID.randomUUID(),
-                                tenantId,
-                                knowledgeBase,
-                                file.toString(),
-                                chunk,
-                                embedder.embed(chunk)
-                        );
+                        pending.add(new PendingChunk(file.toString(), chunk));
+                        if (pending.size() >= BATCH_SIZE) {
+                            flushBatch(pending, tenantId, knowledgeBase);
+                            jobs.put(jobId, jobs.get(jobId).withProgress("INDEXING", totalFiles, fileCount, chunkCount, fileName));
+                        }
                     }
                 }
+                flushBatch(pending, tenantId, knowledgeBase);
 
                 jobs.put(jobId, jobs.get(jobId).completed(totalFiles, chunkCount));
             } catch (Exception e) {
@@ -156,6 +155,40 @@ public class DefaultIndexService implements IndexService {
         });
 
         return initial;
+    }
+
+    private static final int BATCH_SIZE = 100;
+    private record PendingChunk(String path, String chunk) {}
+
+    private void flushBatch(
+            List<PendingChunk> batch,
+            String tenantId,
+            String knowledgeBase
+    ) {
+        if (batch.isEmpty()) return;
+
+        List<String> texts = batch.stream()
+                .map(PendingChunk::chunk)
+                .toList();
+
+        List<float[]> vectors = embedder.embedBatch(texts);
+
+        List<EmbeddingRepository.EmbeddingRecord> records = new ArrayList<>(batch.size());
+        for (int i = 0; i < batch.size(); i++) {
+            PendingChunk item = batch.get(i);
+            float[] vector = i < vectors.size() ? vectors.get(i) : new float[EmbeddingConfig.DIMENSION];
+            records.add(new EmbeddingRepository.EmbeddingRecord(
+                    UUID.randomUUID(),
+                    tenantId,
+                    knowledgeBase,
+                    item.path(),
+                    item.chunk(),
+                    vector
+            ));
+        }
+
+        repo.saveBatch(records);
+        batch.clear();
     }
 
     @Override

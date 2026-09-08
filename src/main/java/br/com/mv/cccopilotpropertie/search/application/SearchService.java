@@ -5,7 +5,8 @@ import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class SearchService {
@@ -20,11 +21,46 @@ public class SearchService {
         reranker = rr;
     }
 
+    private static final Set<String> STOP_WORDS = Set.of(
+            "onde", "classe", "projeto", "como", "esta", "está", "para", "com", "qual", "quais",
+            "esse", "essa", "sobre", "pelo", "pela", "show", "find", "view", "codigo", "código",
+            "metodo", "método", "arquivo", "pasta", "package", "class"
+    );
+
+    private static final Pattern WORD_SPLIT = Pattern.compile("[^a-zA-Z0-9_]+");
+
     public List<SearchResult> search(String tenant, String kb, String question, int limit) {
         float[] q = embedder.embed(question);
 
-        var raw = repo.search(tenant, kb, q, 20);  // pega mais
-        return reranker.rerank(question, raw, limit);
+        var vectorResults = repo.search(tenant, kb, q, limit * 2);
+
+        // Busca simbólica por palavras-chave relevantes
+        List<SearchResult> keywordResults = new ArrayList<>();
+        if (question != null && !question.isBlank()) {
+            String cleanQ = question.trim();
+            if (cleanQ.length() >= 3 && !cleanQ.contains(" ")) {
+                keywordResults.addAll(repo.searchKeyword(tenant, kb, cleanQ, limit));
+            } else {
+                for (String word : WORD_SPLIT.split(question)) {
+                    String lower = word.toLowerCase(Locale.ROOT);
+                    if (word.length() >= 4 && !STOP_WORDS.contains(lower)) {
+                        keywordResults.addAll(repo.searchKeyword(tenant, kb, word, 4));
+                    }
+                }
+            }
+        }
+
+        // Combina priorizando correspondência de palavras-chave exatas no topo
+        Map<String, SearchResult> merged = new LinkedHashMap<>();
+        for (SearchResult kwr : keywordResults) {
+            merged.put(kwr.path() + ":" + kwr.content().hashCode(), kwr);
+        }
+        for (SearchResult vr : vectorResults) {
+            merged.putIfAbsent(vr.path() + ":" + vr.content().hashCode(), vr);
+        }
+
+        List<SearchResult> combined = new ArrayList<>(merged.values());
+        return reranker.rerank(question, combined, limit);
     }
 }
 

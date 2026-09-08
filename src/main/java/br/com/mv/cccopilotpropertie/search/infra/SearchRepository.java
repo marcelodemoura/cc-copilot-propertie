@@ -14,6 +14,15 @@ public interface SearchRepository {
             int limit
     );
 
+    default List<SearchResult> searchKeyword(
+            String tenantId,
+            String knowledgeBase,
+            String keyword,
+            int limit
+    ) {
+        return List.of();
+    }
+
     Optional<SearchResult> findByClassName(
             String tenantId,
             String knowledgeBase,

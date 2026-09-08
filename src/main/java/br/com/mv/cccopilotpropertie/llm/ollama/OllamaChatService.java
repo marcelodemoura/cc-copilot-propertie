@@ -2,6 +2,7 @@ package br.com.mv.cccopilotpropertie.llm.ollama;
 
 import br.com.mv.cccopilotpropertie.llm.application.LlmClient;
 import br.com.mv.cccopilotpropertie.llm.application.ToolCallResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.*;
@@ -18,6 +19,7 @@ public class OllamaChatService implements LlmClient {
     private final String model;
     private final RestTemplate rest;
 
+    @Autowired
     public OllamaChatService(
             @Value("${llm.ollama.base-url:http://localhost:11434}") String baseUrl,
             @Value("${llm.ollama.model:qwen2.5-coder}") String model

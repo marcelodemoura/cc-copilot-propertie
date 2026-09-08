@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5434/copilot}
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/copilot}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    password: ${DB_PASSWORD:admin123}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -15,7 +15,7 @@ spring:
       mode: always
 
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:mock}
+    active: ${SPRING_PROFILES_ACTIVE:openai}
 
 indexer:
   base-path: ${INDEXER_BASE_PATH:.}
@@ -41,6 +41,7 @@ llm:
   openai:
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-5-mini}
+    temperature: ${OPENAI_TEMPERATURE:}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:qwen2.5-coder}

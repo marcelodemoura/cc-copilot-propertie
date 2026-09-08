@@ -2,6 +2,7 @@ package br.com.mv.cccopilotpropertie.embedding.ollama;
 
 import br.com.mv.cccopilotpropertie.config.EmbeddingConfig;
 import br.com.mv.cccopilotpropertie.embedding.EmbeddingService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpEntity;
@@ -22,6 +23,7 @@ public class OllamaEmbeddingService implements EmbeddingService {
     private final String model;
     private final RestTemplate rest;
 
+    @Autowired
     public OllamaEmbeddingService(
             @Value("${llm.ollama.base-url:http://localhost:11434}") String baseUrl,
             @Value("${llm.ollama.embedding-model:nomic-embed-text}") String model

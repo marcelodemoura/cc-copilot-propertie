@@ -71,9 +71,10 @@ public class AgentTools {
         return null;
     }
 
-    @Tool("Lista os arquivos e subdiretórios de uma pasta do projeto para explorar a estrutura de pacotes.")
+    @Tool("Lista os arquivos e subdiretórios em formato de árvore hierárquica (profundidade configurável, padrão 4) para explorar estrutura de pastas e pacotes rapidamente.")
     public String list_files(
-            @P(value = "Subcaminho relativo ou pasta a listar (vazio para a raiz do projeto)", required = false) String path
+            @P(value = "Subcaminho relativo ou pasta a listar (vazio para a raiz do projeto)", required = false) String path,
+            @P(value = "Profundidade máxima da árvore (padrão 4, máximo 5)", required = false) Integer maxDepth
     ) {
         return null;
     }

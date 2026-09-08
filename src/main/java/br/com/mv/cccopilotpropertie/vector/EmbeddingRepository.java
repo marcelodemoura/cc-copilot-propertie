@@ -42,6 +42,40 @@ public class EmbeddingRepository {
         );
     }
 
+    public record EmbeddingRecord(
+            UUID id,
+            String tenantId,
+            String knowledgeBase,
+            String path,
+            String content,
+            float[] vector
+    ) {}
+
+    public void saveBatch(java.util.List<EmbeddingRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+
+        jdbc.batchUpdate("""
+            INSERT INTO code_embeddings (
+                id,
+                tenant_id,
+                knowledge_base,
+                path,
+                content,
+                embedding
+            )
+            VALUES (?, ?, ?, ?, ?, CAST(? AS vector))
+        """, records, records.size(), (ps, rec) -> {
+            ps.setObject(1, rec.id());
+            ps.setString(2, rec.tenantId());
+            ps.setString(3, rec.knowledgeBase());
+            ps.setString(4, rec.path());
+            ps.setString(5, rec.content());
+            ps.setString(6, toVectorLiteral(rec.vector()));
+        });
+    }
+
     public void deleteByPath(String path) {
         jdbc.update(
                 "DELETE FROM code_embeddings WHERE path = ?",

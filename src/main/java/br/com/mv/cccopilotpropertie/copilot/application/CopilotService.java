@@ -49,11 +49,15 @@ public class CopilotService {
                 emitter.complete();
             } catch (Exception e) {
                 try {
+                    String msg = e.getMessage() != null ? e.getMessage() : "Erro inesperado";
+                    if (e instanceof org.springframework.web.client.HttpStatusCodeException se) {
+                        msg = "OpenAI " + se.getStatusCode() + ": " + se.getResponseBodyAsString();
+                    }
                     emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                            .name("error").data(java.util.Map.of("error", e.getMessage() != null ? e.getMessage() : "Erro inesperado")));
+                            .name("error").data(java.util.Map.of("error", msg)));
                 } catch (Exception ignored) {
                 }
-                emitter.completeWithError(e);
+                emitter.complete();
             }
         });
 

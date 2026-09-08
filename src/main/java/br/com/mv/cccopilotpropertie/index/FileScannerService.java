@@ -36,12 +36,29 @@ public class FileScannerService {
         return scan(root);
     }
 
+    private static final long MAX_FILE_SIZE = 300 * 1024; // 300 KB
+
     private boolean isValid(Path path) {
         String p = path.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
         if (p.contains("/.git/") || p.contains("/target/") || p.contains("/build/")
-                || p.contains("/.idea/") || p.contains("/node_modules/")) {
+                || p.contains("/.idea/") || p.contains("/node_modules/")
+                || p.contains("/.gradle/") || p.contains("/log/") || p.contains("/logs/")) {
             return false;
         }
+
+        // Ignora dumps pesados de banco de dados em recursos de testes
+        if (p.endsWith(".sql") && (p.contains("/src/test/") || p.contains("/test/resources/") || p.contains("/resources/test/"))) {
+            return false;
+        }
+
+        try {
+            if (Files.size(path) > MAX_FILE_SIZE) {
+                return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+
         return p.endsWith(".java") || p.endsWith(".kt") || p.endsWith(".groovy")
                 || p.endsWith(".xml") || p.endsWith(".yml") || p.endsWith(".yaml")
                 || p.endsWith(".properties") || p.endsWith(".md") || p.endsWith(".sql")

@@ -2,6 +2,7 @@ package br.com.mv.cccopilotpropertie.llm;
 
 import br.com.mv.cccopilotpropertie.llm.application.LlmClient;
 import br.com.mv.cccopilotpropertie.llm.application.ToolCallResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.*;
@@ -16,14 +17,34 @@ public class OpenAiChatService implements LlmClient {
 
     private final String apiKey;
     private final String model;
-    private final RestTemplate rest = new RestTemplate();
+    private final Double temperature;
+    private final RestTemplate rest;
 
+    @Autowired
     public OpenAiChatService(
             @Value("${llm.openai.api-key}") String apiKey,
-            @Value("${llm.openai.model:gpt-4.1-mini}") String model
+            @Value("${llm.openai.model:gpt-4.1-mini}") String model,
+            @Value("${llm.openai.temperature:}") String temperature
     ) {
+        this(apiKey, model, parseTemperature(temperature), new RestTemplate());
+    }
+
+    public OpenAiChatService(String apiKey, String model, Double temperature, RestTemplate rest) {
         this.apiKey = apiKey;
         this.model = model;
+        this.temperature = temperature;
+        this.rest = rest;
+    }
+
+    private static Double parseTemperature(String tempStr) {
+        if (tempStr == null || tempStr.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(tempStr.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @Override
@@ -32,7 +53,9 @@ public class OpenAiChatService implements LlmClient {
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
         body.put("messages", messages);
-        body.put("temperature", 0.2);
+        if (temperature != null) {
+            body.put("temperature", temperature);
+        }
 
         if (tools != null && !tools.isEmpty()) {
             body.put("tools", tools);

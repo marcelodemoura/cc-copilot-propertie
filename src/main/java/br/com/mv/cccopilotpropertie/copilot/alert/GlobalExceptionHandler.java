@@ -36,6 +36,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(502).body(Map.of("error", detail));
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        return ResponseEntity.status(404).body(Map.of("error", "Recurso não encontrado: " + ex.getResourcePath()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
         log.error("Erro inesperado", ex);

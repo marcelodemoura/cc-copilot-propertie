@@ -237,8 +237,17 @@ public class AgentToolExecutor {
         }
     }
 
+    private static final java.util.Set<String> IGNORED_DIRS = java.util.Set.of(
+            ".git", ".gradle", "build", "target", ".idea", ".run", ".github", ".sixth",
+            "log", "logs", "node_modules", "dist", "out"
+    );
+
     private String listFiles(Map<String, Object> args, String tenantId, String kb) {
         String subPath = args.containsKey("path") && args.get("path") != null ? (String) args.get("path") : "";
+        int maxDepth = args.containsKey("maxDepth") && args.get("maxDepth") != null
+                ? Math.min(5, Math.max(1, ((Number) args.get("maxDepth")).intValue()))
+                : 4;
+
         Path projectRoot = resolveProjectPath(kb);
         Path target = projectRoot.resolve(subPath).normalize().toAbsolutePath();
 
@@ -251,18 +260,74 @@ public class AgentToolExecutor {
             return "Diretório não encontrado: " + subPath;
         }
 
-        try (var stream = Files.list(target)) {
-            List<Path> entries = stream.sorted().limit(60).toList();
+        try {
             StringBuilder sb = new StringBuilder();
-            sb.append("DIRETÓRIO: ").append(target).append("\n");
-            for (Path p : entries) {
-                sb.append(Files.isDirectory(p) ? "[DIR] " : "[ARQ] ")
-                        .append(p.getFileName())
-                        .append("\n");
+            sb.append("ÁRVORE DE ARQUIVOS: ").append(target).append(" (profundidade: ").append(maxDepth).append(")\n");
+            List<String> treeLines = new ArrayList<>();
+            buildTree(target, maxDepth, 1, treeLines);
+            for (String line : treeLines) {
+                sb.append(line).append("\n");
+            }
+            if (treeLines.isEmpty()) {
+                sb.append("(diretório vazio ou todos os arquivos estão em pastas ignoradas)\n");
             }
             return sb.toString();
         } catch (Exception e) {
             return "Erro ao listar diretório " + subPath + ": " + e.getMessage();
+        }
+    }
+
+    private void buildTree(Path current, int maxDepth, int currentDepth, List<String> lines) {
+        if (lines.size() >= 80) return;
+
+        try (var stream = Files.list(current)) {
+            List<Path> entries = stream.sorted(java.util.Comparator.comparing((Path p) -> !Files.isDirectory(p))
+                    .thenComparing(p -> p.getFileName().toString().toLowerCase())).toList();
+
+            for (Path entry : entries) {
+                if (lines.size() >= 80) {
+                    lines.add("... (listagem truncada em 80 itens)");
+                    return;
+                }
+
+                String name = entry.getFileName().toString();
+                if (IGNORED_DIRS.contains(name) || name.startsWith(".")) {
+                    continue;
+                }
+
+                if (Files.isDirectory(entry)) {
+                    // Colapsa cadeias de diretórios de filho único (ex: br/com/mv/cpv)
+                    Path curr = entry;
+                    List<String> parts = new ArrayList<>();
+                    parts.add(curr.getFileName().toString());
+                    while (true) {
+                        try (var subStream = Files.list(curr)) {
+                            List<Path> validSubs = subStream.filter(p -> !IGNORED_DIRS.contains(p.getFileName().toString())
+                                    && !p.getFileName().toString().startsWith(".")).toList();
+                            if (validSubs.size() == 1 && Files.isDirectory(validSubs.get(0))) {
+                                curr = validSubs.get(0);
+                                parts.add(curr.getFileName().toString());
+                            } else {
+                                break;
+                            }
+                        } catch (Exception e) {
+                            break;
+                        }
+                    }
+
+                    String collapsedName = String.join("/", parts);
+                    String indent = "  ".repeat(Math.max(0, currentDepth - 1));
+                    lines.add(indent + "[DIR] " + collapsedName + "/");
+
+                    if (currentDepth < maxDepth) {
+                        buildTree(curr, maxDepth, currentDepth + 1, lines);
+                    }
+                } else {
+                    String indent = "  ".repeat(Math.max(0, currentDepth - 1));
+                    lines.add(indent + "[ARQ] " + name);
+                }
+            }
+        } catch (Exception ignored) {
         }
     }
 
