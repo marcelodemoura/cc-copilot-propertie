@@ -24,6 +24,8 @@ public class DefaultIndexService implements IndexService {
     private final Path allowedBasePath;
     private final java.util.concurrent.ConcurrentHashMap<UUID, IndexJobStatus> jobs = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, UUID> latestJobByKb = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<UUID> cancelledJobs = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<UUID, java.util.concurrent.Future<?>> runningFutures = new java.util.concurrent.ConcurrentHashMap<>();
 
     public DefaultIndexService(
             FileScannerService scanner,
@@ -112,12 +114,17 @@ public class DefaultIndexService implements IndexService {
         jobs.put(jobId, initial);
         latestJobByKb.put(knowledgeBase, jobId);
 
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
+        java.util.concurrent.CompletableFuture<Void> future = java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
                 jobs.put(jobId, jobs.get(jobId).withProgress("SCANNING", 0, 0, 0, "Varrendo arquivos do projeto..."));
 
                 List<Path> files = scanner.scan(root);
                 int totalFiles = files.size();
+
+                if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    return;
+                }
 
                 repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
 
@@ -126,6 +133,11 @@ public class DefaultIndexService implements IndexService {
                 List<PendingChunk> pending = new ArrayList<>();
 
                 for (Path file : files) {
+                    if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                        jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                        return;
+                    }
+
                     fileCount++;
                     String fileName = file.getFileName().toString();
                     jobs.put(jobId, jobs.get(jobId).withProgress("INDEXING", totalFiles, fileCount, chunkCount, fileName));
@@ -138,21 +150,49 @@ public class DefaultIndexService implements IndexService {
                     }
 
                     for (String chunk : chunker.chunk(content)) {
+                        if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                            jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                            return;
+                        }
+
                         chunkCount++;
                         pending.add(new PendingChunk(file.toString(), chunk));
                         if (pending.size() >= BATCH_SIZE) {
                             flushBatch(pending, tenantId, knowledgeBase);
+                            if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                                jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                                return;
+                            }
                             jobs.put(jobId, jobs.get(jobId).withProgress("INDEXING", totalFiles, fileCount, chunkCount, fileName));
                         }
                     }
                 }
+                if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    return;
+                }
+
                 flushBatch(pending, tenantId, knowledgeBase);
+
+                if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
+                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    return;
+                }
 
                 jobs.put(jobId, jobs.get(jobId).completed(totalFiles, chunkCount));
             } catch (Exception e) {
-                jobs.put(jobId, jobs.get(jobId).failed(e.getMessage() != null ? e.getMessage() : "Erro inesperado"));
+                if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
+                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                } else {
+                    jobs.put(jobId, jobs.get(jobId).failed(e.getMessage() != null ? e.getMessage() : "Erro inesperado"));
+                }
+            } finally {
+                runningFutures.remove(jobId);
+                cancelledJobs.remove(jobId);
             }
         });
+
+        runningFutures.put(jobId, future);
 
         return initial;
     }
@@ -200,5 +240,31 @@ public class DefaultIndexService implements IndexService {
     public java.util.Optional<IndexJobStatus> getLatestJobStatus(String knowledgeBase) {
         UUID latest = latestJobByKb.get(knowledgeBase);
         return latest != null ? getJobStatus(latest) : java.util.Optional.empty();
+    }
+
+    @Override
+    public boolean cancelJob(UUID jobId) {
+        IndexJobStatus current = jobs.get(jobId);
+        if (current == null) {
+            return false;
+        }
+        if ("COMPLETED".equals(current.status()) || "FAILED".equals(current.status()) || "CANCELLED".equals(current.status())) {
+            return false;
+        }
+
+        cancelledJobs.add(jobId);
+        jobs.put(jobId, current.cancelled("Indexação cancelada pelo usuário"));
+
+        var future = runningFutures.remove(jobId);
+        if (future != null) {
+            future.cancel(true);
+        }
+        return true;
+    }
+
+    @Override
+    public boolean cancelLatestJob(String knowledgeBase) {
+        UUID latest = latestJobByKb.get(knowledgeBase);
+        return latest != null && cancelJob(latest);
     }
 }

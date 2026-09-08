@@ -51,4 +51,12 @@ public class ProjectService {
     public java.util.Optional<br.com.mv.cccopilotpropertie.index.IndexJobStatus> getLatestIndexStatus(UUID projectId) {
         return indexService.getLatestJobStatus(projectId.toString());
     }
+
+    public boolean cancelIndex(UUID projectId) {
+        return indexService.cancelLatestJob(projectId.toString());
+    }
+
+    public boolean cancelJob(UUID jobId) {
+        return indexService.cancelJob(jobId);
+    }
 }

@@ -13,4 +13,8 @@ public interface IndexService {
     java.util.Optional<IndexJobStatus> getJobStatus(java.util.UUID jobId);
 
     java.util.Optional<IndexJobStatus> getLatestJobStatus(String knowledgeBase);
+
+    boolean cancelJob(java.util.UUID jobId);
+
+    boolean cancelLatestJob(String knowledgeBase);
 }

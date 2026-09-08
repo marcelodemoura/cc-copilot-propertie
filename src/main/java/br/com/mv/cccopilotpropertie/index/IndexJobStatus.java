@@ -45,4 +45,12 @@ public record IndexJobStatus(
                 totalFiles, processedFiles, totalChunks, progressPercent, currentFile, error, startedAt, LocalDateTime.now()
         );
     }
+
+    public IndexJobStatus cancelled(String reason) {
+        return new IndexJobStatus(
+                jobId, tenantId, knowledgeBase, "CANCELLED",
+                totalFiles, processedFiles, totalChunks, progressPercent, currentFile,
+                reason != null ? reason : "Indexação cancelada pelo usuário", startedAt, LocalDateTime.now()
+        );
+    }
 }

@@ -21,10 +21,16 @@ public class ProjectController {
 
     private final ProjectService projects;
     private final CopilotService copilot;
+    private final br.com.mv.cccopilotpropertie.project.application.ProjectFileSystemService fileSystemService;
 
-    public ProjectController(ProjectService projects, CopilotService copilot) {
+    public ProjectController(
+            ProjectService projects,
+            CopilotService copilot,
+            br.com.mv.cccopilotpropertie.project.application.ProjectFileSystemService fileSystemService
+    ) {
         this.projects = projects;
         this.copilot = copilot;
+        this.fileSystemService = fileSystemService;
     }
 
     @GetMapping
@@ -66,6 +72,46 @@ public class ProjectController {
         return projects.getIndexStatus(jobId)
                 .map(org.springframework.http.ResponseEntity::ok)
                 .orElse(org.springframework.http.ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/{id}/index/cancel")
+    @Operation(summary = "Cancela a indexação do projeto", description = "Interrompe imediatamente o processo em segundo plano de varredura e embeddings.")
+    public org.springframework.http.ResponseEntity<br.com.mv.cccopilotpropertie.index.IndexJobStatus> cancelIndex(@PathVariable UUID id) {
+        projects.cancelIndex(id);
+        return projects.getLatestIndexStatus(id)
+                .map(org.springframework.http.ResponseEntity::ok)
+                .orElse(org.springframework.http.ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/index/jobs/{jobId}/cancel")
+    @Operation(summary = "Cancela um job de indexação específico por ID")
+    public org.springframework.http.ResponseEntity<br.com.mv.cccopilotpropertie.index.IndexJobStatus> cancelJob(@PathVariable UUID jobId) {
+        projects.cancelJob(jobId);
+        return projects.getIndexStatus(jobId)
+                .map(org.springframework.http.ResponseEntity::ok)
+                .orElse(org.springframework.http.ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/browse")
+    @Operation(summary = "Navega pelos diretórios do servidor para seleção de projeto")
+    public DirectoryBrowseResultDto browse(@RequestParam(required = false) String path) {
+        return fileSystemService.browse(path);
+    }
+
+    @GetMapping("/search-dirs")
+    @Operation(summary = "Busca diretórios no servidor por termo para seleção rápida")
+    public List<DirectoryEntryDto> searchDirs(@RequestParam String query) {
+        return fileSystemService.searchDirectories(query);
+    }
+
+    @PostMapping(value = "/upload", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload de projeto via arquivo .ZIP", description = "Descompacta o ZIP em diretório dedicado e cadastra o projeto automaticamente.")
+    public ProjectEntity upload(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "tenantId", defaultValue = "default") String tenantId
+    ) throws IOException {
+        return fileSystemService.uploadAndExtractZip(file, name, tenantId);
     }
 
     @PostMapping("/{id}/ask")

@@ -100,6 +100,9 @@
         <button onclick="startIndexAsync()" id="btnIndexAsync" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium transition flex items-center justify-center space-x-1">
           <span>⚡ Indexar</span>
         </button>
+        <button onclick="cancelIndex()" id="btnCancelIndex" class="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-medium transition flex items-center justify-center space-x-1 hidden">
+          <span>⛔ Cancelar</span>
+        </button>
         <button onclick="checkIndexStatus()" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs transition">
           Status
         </button>
@@ -166,13 +169,109 @@
   </main>
 
   <!-- MODAL PARA CADASTRAR NOVO PROJETO -->
-  <div id="projectModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-    <div class="bg-darkpanel border border-darkborder rounded-xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+  <div id="projectModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-darkpanel border border-darkborder rounded-xl w-full max-w-2xl p-6 space-y-4 shadow-2xl flex flex-col max-h-[90vh]">
       <div class="flex justify-between items-center border-b border-darkborder pb-3">
-        <h3 class="font-bold text-white text-base">Cadastrar Novo Projeto</h3>
-        <button onclick="closeModal()" class="text-slate-400 hover:text-white">&times;</button>
+        <div class="flex items-center space-x-2">
+          <span class="text-xl">📁</span>
+          <h3 class="font-bold text-white text-base">Adicionar Novo Projeto</h3>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
-      <div class="space-y-3 text-xs">
+
+      <!-- ABAS -->
+      <div class="flex border-b border-darkborder space-x-4 text-xs font-semibold">
+        <button id="tabBtnBrowse" onclick="switchModalTab('browse')" class="pb-2 text-emerald-400 border-b-2 border-emerald-400 flex items-center space-x-1.5 transition">
+          <span>🔍 Explorar Pastas / Projetos</span>
+        </button>
+        <button id="tabBtnUpload" onclick="switchModalTab('upload')" class="pb-2 text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition">
+          <span>📦 Upload de Projeto (.ZIP)</span>
+        </button>
+        <button id="tabBtnManual" onclick="switchModalTab('manual')" class="pb-2 text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition">
+          <span>✍️ Digitar Caminho</span>
+        </button>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 1: BROWSE & SEARCH -->
+      <div id="tabContentBrowse" class="space-y-3 flex-1 overflow-hidden flex flex-col">
+        <!-- Campo de busca rápida com debounce -->
+        <div class="relative">
+          <input id="dirSearchInput" type="text" placeholder="Filtrar por nome de projeto ou pasta (ex: cpv, painel, copilot)..."
+                 class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                 oninput="handleDirSearch(this.value)">
+          <span class="absolute left-2.5 top-2.5 text-slate-500 text-xs">🔍</span>
+          <button id="btnClearDirSearch" onclick="clearDirSearch()" class="hidden absolute right-2.5 top-2 text-slate-400 hover:text-white text-xs">&times;</button>
+        </div>
+
+        <!-- Barra de caminho atual / breadcrumbs -->
+        <div class="flex items-center justify-between bg-slate-900/80 px-3 py-1.5 rounded text-[11px] text-slate-300 border border-slate-800">
+          <div class="flex items-center space-x-1 truncate max-w-[420px]">
+            <span class="text-slate-500">Local:</span>
+            <span id="currentBrowsePath" class="font-mono text-emerald-300 truncate"></span>
+          </div>
+          <button id="btnParentDir" onclick="goToParentDir()" class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 hover:text-white transition disabled:opacity-40" disabled>
+            ⬆ Subir
+          </button>
+        </div>
+
+        <!-- Lista de Diretórios -->
+        <div id="dirBrowseList" class="flex-1 overflow-y-auto space-y-1.5 min-h-[220px] max-h-[280px] p-1 border border-slate-800/80 rounded-lg bg-slate-950/40">
+          <div class="text-center py-10 text-slate-500 text-xs">Carregando diretórios...</div>
+        </div>
+
+        <!-- Projeto Selecionado na Aba Browse -->
+        <div id="browseSelectedCard" class="hidden p-3 bg-emerald-950/30 border border-emerald-500/40 rounded-lg flex items-center justify-between">
+          <div class="truncate max-w-[380px]">
+            <div class="text-xs font-bold text-white flex items-center space-x-1.5">
+              <span>Projeto Selecionado:</span>
+              <span id="browseSelectedName" class="text-emerald-400"></span>
+            </div>
+            <div id="browseSelectedPath" class="text-[11px] text-slate-400 font-mono truncate"></div>
+          </div>
+          <button onclick="confirmBrowseProject()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition">
+            Cadastrar Este
+          </button>
+        </div>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 2: UPLOAD ZIP -->
+      <div id="tabContentUpload" class="hidden space-y-3 flex-1 flex flex-col justify-center">
+        <div id="zipDropZone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" onclick="document.getElementById('zipFileInput').click()"
+             class="border-2 border-dashed border-slate-700 hover:border-emerald-500/60 rounded-xl p-8 text-center cursor-pointer transition bg-slate-900/40 hover:bg-slate-900/80 space-y-2">
+          <div class="text-3xl">📦</div>
+          <p class="text-xs font-medium text-slate-300">Arraste seu arquivo <span class="text-emerald-400 font-semibold">.ZIP</span> aqui ou clique para selecionar</p>
+          <p class="text-[11px] text-slate-500">O projeto será descompactado e configurado automaticamente no servidor.</p>
+          <input type="file" id="zipFileInput" accept=".zip" class="hidden" onchange="handleZipSelected(event)">
+        </div>
+
+        <div id="zipFileDetails" class="hidden p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span id="zipFileName" class="text-white font-medium truncate max-w-[320px]"></span>
+            <span id="zipFileSize" class="text-slate-400"></span>
+          </div>
+          <div>
+            <label class="block text-slate-400 text-[11px] mb-1">Nome do Projeto (opcional):</label>
+            <input id="zipProjName" type="text" placeholder="Nome personalizado (padrão: nome do zip)" class="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+          </div>
+          <div id="zipUploadProgressContainer" class="hidden space-y-1 pt-1">
+            <div class="flex justify-between text-[11px] text-slate-400">
+              <span id="zipUploadStatus">Enviando e extraindo...</span>
+              <span id="zipUploadPercent">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="zipUploadProgressBar" class="bg-emerald-500 h-1.5 rounded-full transition-all" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button id="btnSubmitZip" onclick="uploadZipProject()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition">
+              Extrair e Cadastrar Projeto
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTEÚDO DA ABA 3: MANUAL -->
+      <div id="tabContentManual" class="hidden space-y-3 text-xs">
         <div>
           <label class="block text-slate-400 mb-1">Nome do Projeto:</label>
           <input id="newProjName" type="text" placeholder="ex: meu-backend" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
@@ -185,10 +284,15 @@
           <label class="block text-slate-400 mb-1">Tenant ID:</label>
           <input id="newProjTenant" type="text" value="default" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
         </div>
+        <div class="flex justify-end pt-2">
+          <button onclick="saveProject()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition">
+            Cadastrar Manualmente
+          </button>
+        </div>
       </div>
-      <div class="flex justify-end space-x-2 pt-2 border-t border-darkborder">
-        <button onclick="closeModal()" class="px-3 py-1.5 rounded text-xs text-slate-400 hover:text-white">Cancelar</button>
-        <button onclick="saveProject()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition">Cadastrar</button>
+
+      <div class="flex justify-end pt-2 border-t border-darkborder">
+        <button onclick="closeModal()" class="px-3 py-1.5 rounded text-xs text-slate-400 hover:text-white">Fechar</button>
       </div>
     </div>
   </div>
@@ -255,9 +359,263 @@
       }
     }
 
-    // Modal
-    function openModal() { document.getElementById('projectModal').classList.remove('hidden'); }
-    function closeModal() { document.getElementById('projectModal').classList.add('hidden'); }
+    // Modal e Abas
+    let currentBrowseParent = null;
+    let selectedBrowseItem = null;
+    let searchDebounceTimer = null;
+    let selectedZipFile = null;
+
+    function openModal() {
+      document.getElementById('projectModal').classList.remove('hidden');
+      switchModalTab('browse');
+    }
+
+    function closeModal() {
+      document.getElementById('projectModal').classList.add('hidden');
+    }
+
+    function switchModalTab(tab) {
+      const tabs = ['browse', 'upload', 'manual'];
+      tabs.forEach(t => {
+        const content = document.getElementById(`tabContent${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        const btn = document.getElementById(`tabBtn${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        if (t === tab) {
+          content.classList.remove('hidden');
+          btn.className = 'pb-2 text-emerald-400 border-b-2 border-emerald-400 flex items-center space-x-1.5 font-semibold transition';
+        } else {
+          content.classList.add('hidden');
+          btn.className = 'pb-2 text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        }
+      });
+      if (tab === 'browse') {
+        loadDirectoryBrowse();
+      }
+    }
+
+    // Navegação e Busca de Pastas
+    async function loadDirectoryBrowse(path) {
+      const listEl = document.getElementById('dirBrowseList');
+      listEl.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">Carregando diretórios do servidor...</div>';
+      try {
+        const url = path ? `/projects/browse?path=${encodeURIComponent(path)}` : '/projects/browse';
+        const res = await fetch(url, { headers: { 'X-API-Key': getApiKey() } });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+
+        document.getElementById('currentBrowsePath').innerText = data.currentPath;
+        currentBrowseParent = data.parentPath;
+        const parentBtn = document.getElementById('btnParentDir');
+        parentBtn.disabled = !currentBrowseParent;
+
+        renderBrowseList(data.directories);
+      } catch (err) {
+        listEl.innerHTML = `<div class="text-xs text-red-400 p-4 text-center">Erro ao carregar diretórios: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function goToParentDir() {
+      if (currentBrowseParent) {
+        loadDirectoryBrowse(currentBrowseParent);
+      }
+    }
+
+    function renderBrowseList(directories) {
+      const listEl = document.getElementById('dirBrowseList');
+      if (!directories || !directories.length) {
+        listEl.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">Nenhum subdiretório encontrado nesta pasta.</div>';
+        return;
+      }
+
+      listEl.innerHTML = directories.map(d => {
+        let badge = '';
+        if (d.projectType) {
+          let badgeColor = 'bg-emerald-900/60 text-emerald-300 border-emerald-700/60';
+          if (d.projectType === 'Maven') badgeColor = 'bg-blue-900/60 text-blue-300 border-blue-700/60';
+          if (d.projectType === 'Node') badgeColor = 'bg-amber-900/60 text-amber-300 border-amber-700/60';
+          if (d.projectType === 'Git') badgeColor = 'bg-purple-900/60 text-purple-300 border-purple-700/60';
+          badge = `<span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeColor}">${d.projectType}</span>`;
+        }
+
+        return `
+          <div class="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 transition flex items-center justify-between">
+            <div class="flex items-center space-x-2 truncate max-w-[340px] cursor-pointer" onclick="loadDirectoryBrowse('${escapeJs(d.path)}')">
+              <span class="text-base">${d.isProject ? '📦' : '📁'}</span>
+              <div class="truncate">
+                <div class="text-xs font-semibold text-white truncate hover:underline flex items-center space-x-1.5">
+                  <span>${escapeHtml(d.name)}</span>
+                  ${badge}
+                </div>
+                <div class="text-[10px] text-slate-500 font-mono truncate">${escapeHtml(d.path)}</div>
+              </div>
+            </div>
+            <div class="flex items-center space-x-1 flex-shrink-0">
+              <button onclick="loadDirectoryBrowse('${escapeJs(d.path)}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[11px] transition" title="Abrir pasta">
+                Abrir
+              </button>
+              <button onclick="selectBrowseDirectory('${escapeJs(d.path)}', '${escapeJs(d.name)}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold transition" title="Selecionar este projeto">
+                Selecionar
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    function handleDirSearch(query) {
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      const clearBtn = document.getElementById('btnClearDirSearch');
+      if (query.trim().length > 0) {
+        clearBtn.classList.remove('hidden');
+      } else {
+        clearBtn.classList.add('hidden');
+      }
+
+      if (query.trim().length < 2) {
+        loadDirectoryBrowse();
+        return;
+      }
+
+      searchDebounceTimer = setTimeout(async () => {
+        const listEl = document.getElementById('dirBrowseList');
+        listEl.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">Buscando pastas...</div>';
+        try {
+          const res = await fetch(`/projects/search-dirs?query=${encodeURIComponent(query.trim())}`, {
+            headers: { 'X-API-Key': getApiKey() }
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const results = await res.json();
+          renderBrowseList(results);
+        } catch (err) {
+          listEl.innerHTML = `<div class="text-xs text-red-400 p-4 text-center">Erro na busca: ${escapeHtml(err.message)}</div>`;
+        }
+      }, 300);
+    }
+
+    function clearDirSearch() {
+      const input = document.getElementById('dirSearchInput');
+      input.value = '';
+      document.getElementById('btnClearDirSearch').classList.add('hidden');
+      loadDirectoryBrowse();
+    }
+
+    function selectBrowseDirectory(path, name) {
+      selectedBrowseItem = { path, name };
+      document.getElementById('browseSelectedCard').classList.remove('hidden');
+      document.getElementById('browseSelectedName').innerText = name;
+      document.getElementById('browseSelectedPath').innerText = path;
+    }
+
+    async function confirmBrowseProject() {
+      if (!selectedBrowseItem) return;
+      try {
+        const res = await fetch('/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
+          body: JSON.stringify({ name: selectedBrowseItem.name, rootPath: selectedBrowseItem.path, tenantId: 'default' })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const created = await res.json();
+        closeModal();
+        await loadProjects();
+        selectProject(created.id);
+      } catch (err) {
+        alert('Erro ao cadastrar projeto: ' + err.message);
+      }
+    }
+
+    // Upload ZIP de Projeto
+    function handleZipSelected(e) {
+      const file = e.target.files[0];
+      if (file) setupZipFile(file);
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      document.getElementById('zipDropZone').classList.add('border-emerald-500', 'bg-slate-900/80');
+    }
+
+    function handleDragLeave(e) {
+      e.preventDefault();
+      document.getElementById('zipDropZone').classList.remove('border-emerald-500', 'bg-slate-900/80');
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('zipDropZone').classList.remove('border-emerald-500', 'bg-slate-900/80');
+      const file = e.dataTransfer.files[0];
+      if (file) setupZipFile(file);
+    }
+
+    function setupZipFile(file) {
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        return alert('Por favor selecione um arquivo .zip');
+      }
+      selectedZipFile = file;
+      document.getElementById('zipFileDetails').classList.remove('hidden');
+      document.getElementById('zipFileName').innerText = file.name;
+      document.getElementById('zipFileSize').innerText = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+      const baseName = file.name.replace(/\.zip$/i, '');
+      document.getElementById('zipProjName').value = baseName;
+    }
+
+    async function uploadZipProject() {
+      if (!selectedZipFile) return alert('Selecione um arquivo .zip primeiro');
+      const btn = document.getElementById('btnSubmitZip');
+      btn.disabled = true;
+      btn.innerText = 'Enviando e extraindo...';
+
+      const progressContainer = document.getElementById('zipUploadProgressContainer');
+      const progressBar = document.getElementById('zipUploadProgressBar');
+      const progressPercent = document.getElementById('zipUploadPercent');
+      const progressStatus = document.getElementById('zipUploadStatus');
+
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = '30%';
+      progressPercent.innerText = '30%';
+      progressStatus.innerText = 'Fazendo upload do arquivo ZIP...';
+
+      const formData = new FormData();
+      formData.append('file', selectedZipFile);
+      const customName = document.getElementById('zipProjName').value.trim();
+      if (customName) formData.append('name', customName);
+      formData.append('tenantId', 'default');
+
+      try {
+        progressBar.style.width = '65%';
+        progressPercent.innerText = '65%';
+        progressStatus.innerText = 'Extraindo arquivos e configurando projeto...';
+
+        const res = await fetch('/projects/upload', {
+          method: 'POST',
+          headers: { 'X-API-Key': getApiKey() },
+          body: formData
+        });
+
+        if (!res.ok) throw new Error(await res.text());
+        const created = await res.json();
+
+        progressBar.style.width = '100%';
+        progressPercent.innerText = '100%';
+        progressStatus.innerText = 'Projeto cadastrado com sucesso!';
+
+        setTimeout(async () => {
+          closeModal();
+          await loadProjects();
+          selectProject(created.id);
+        }, 600);
+      } catch (err) {
+        alert('Erro no upload: ' + err.message);
+        progressContainer.classList.add('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Extrair e Cadastrar Projeto';
+      }
+    }
 
     async function saveProject() {
       const name = document.getElementById('newProjName').value.trim();
@@ -280,7 +638,7 @@
       }
     }
 
-    // Indexação Assíncrona com Progresso
+    // Indexação Assíncrona com Progresso e Cancelamento
     async function startIndexAsync() {
       if (!selectedProject) return;
       const btn = document.getElementById('btnIndexAsync');
@@ -299,6 +657,28 @@
       } finally {
         btn.disabled = false;
         btn.innerText = '⚡ Indexar';
+      }
+    }
+
+    async function cancelIndex() {
+      if (!selectedProject) return;
+      const btn = document.getElementById('btnCancelIndex');
+      btn.disabled = true;
+      btn.innerText = 'Cancelando...';
+
+      try {
+        const res = await fetch(`/projects/${selectedProject.id}/index/cancel`, {
+          method: 'POST',
+          headers: { 'X-API-Key': getApiKey() }
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        updateProgressBar(data);
+      } catch (e) {
+        alert('Erro ao cancelar indexação: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⛔ Cancelar';
       }
     }
 
@@ -327,6 +707,8 @@
       const percent = document.getElementById('indexPercent');
       const bar = document.getElementById('indexProgressBar');
       const file = document.getElementById('indexCurrentFile');
+      const btnIndex = document.getElementById('btnIndexAsync');
+      const btnCancel = document.getElementById('btnCancelIndex');
 
       container.classList.remove('hidden');
       text.innerText = `Status: ${data.status}`;
@@ -334,13 +716,28 @@
       bar.style.width = `${data.progressPercent}%`;
       file.innerText = data.currentFile ? `${data.processedFiles}/${data.totalFiles} — ${data.currentFile}` : '';
 
+      const isRunning = data.status === 'SUBMITTED' || data.status === 'SCANNING' || data.status === 'INDEXING';
+      if (isRunning) {
+        btnIndex.classList.add('hidden');
+        btnCancel.classList.remove('hidden');
+        bar.className = 'bg-emerald-500 h-2 rounded-full transition-all duration-300 animate-pulse';
+      } else {
+        btnIndex.classList.remove('hidden');
+        btnCancel.classList.add('hidden');
+      }
+
       if (data.status === 'COMPLETED') {
         text.innerText = `Concluído (${data.totalFiles} arqs, ${data.totalChunks} chunks)`;
+        bar.className = 'bg-emerald-500 h-2 rounded-full transition-all duration-300';
         bar.style.width = '100%';
         if (pollInterval) clearInterval(pollInterval);
       } else if (data.status === 'FAILED') {
         text.innerText = `Falhou: ${data.errorMessage || 'Erro'}`;
-        bar.classList.replace('bg-emerald-500', 'bg-red-500');
+        bar.className = 'bg-red-500 h-2 rounded-full transition-all duration-300';
+        if (pollInterval) clearInterval(pollInterval);
+      } else if (data.status === 'CANCELLED') {
+        text.innerText = `Cancelado: ${data.errorMessage || 'Indexação cancelada'}`;
+        bar.className = 'bg-amber-500 h-2 rounded-full transition-all duration-300';
         if (pollInterval) clearInterval(pollInterval);
       }
     }
