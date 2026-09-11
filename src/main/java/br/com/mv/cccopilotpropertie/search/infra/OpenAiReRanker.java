@@ -6,7 +6,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @Profile("!mock")
@@ -19,22 +21,18 @@ public class OpenAiReRanker implements ReRanker {
     ) {
         this.apiKey = apiKey;
     }
+
     @Override
     public List<SearchResult> rerank(
             String question,
             List<SearchResult> candidates
     ) {
-        return candidates;
-    }
-
-    @Override
-    public List<SearchResult> rerank(
-            String question,
-            List<SearchResult> candidates,
-            int topK
-    ) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
         return candidates.stream()
-                .limit(topK)
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingDouble(SearchResult::score).reversed())
                 .toList();
     }
 }

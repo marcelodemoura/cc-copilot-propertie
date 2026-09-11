@@ -1,5 +1,6 @@
 package br.com.mv.cccopilotpropertie.vector;
 
+import br.com.mv.cccopilotpropertie.config.EmbeddingConfig;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -22,6 +23,7 @@ public class EmbeddingRepository {
             String content,
             float[] vector
     ) {
+        validateVector(vector);
         jdbc.update("""
             INSERT INTO code_embeddings (
                 id,
@@ -56,6 +58,10 @@ public class EmbeddingRepository {
             return;
         }
 
+        for (EmbeddingRecord rec : records) {
+            validateVector(rec.vector());
+        }
+
         jdbc.batchUpdate("""
             INSERT INTO code_embeddings (
                 id,
@@ -74,6 +80,17 @@ public class EmbeddingRepository {
             ps.setString(5, rec.content());
             ps.setString(6, toVectorLiteral(rec.vector()));
         });
+    }
+
+    private void validateVector(float[] vector) {
+        if (vector == null) {
+            throw new IllegalArgumentException("Embedding vector cannot be null");
+        }
+        if (vector.length != EmbeddingConfig.DIMENSION) {
+            throw new IllegalArgumentException(
+                    "Embedding vector dimension mismatch: expected " + EmbeddingConfig.DIMENSION + ", but got " + vector.length
+            );
+        }
     }
 
     public void deleteByPath(String path) {

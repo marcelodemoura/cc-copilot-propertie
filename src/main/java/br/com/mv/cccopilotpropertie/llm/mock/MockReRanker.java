@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @Profile("mock")
@@ -14,11 +15,12 @@ public class MockReRanker implements ReRanker {
 
     @Override
     public List<SearchResult> rerank(String question, List<SearchResult> results) {
-        return results.stream().sorted(Comparator.comparingDouble(SearchResult::score).reversed()).toList();
-    }
-
-    @Override
-    public List<SearchResult> rerank(String question, List<SearchResult> candidates, int topK) {
-        return rerank(question, candidates).stream().limit(topK).toList();
+        if (results == null || results.isEmpty()) {
+            return List.of();
+        }
+        return results.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingDouble(SearchResult::score).reversed())
+                .toList();
     }
 }

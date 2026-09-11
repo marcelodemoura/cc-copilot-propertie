@@ -22,6 +22,11 @@ public class PostgresSearchRepository implements SearchRepository {
             float[] vector,
             int limit
     ) {
+        if (vector == null || vector.length != br.com.mv.cccopilotpropertie.config.EmbeddingConfig.DIMENSION) {
+            throw new IllegalArgumentException("Search vector dimension mismatch: expected "
+                    + br.com.mv.cccopilotpropertie.config.EmbeddingConfig.DIMENSION
+                    + ", but got " + (vector == null ? 0 : vector.length));
+        }
         int candidateLimit = Math.max(limit * 3, 30);
         List<SearchResult> raw = jdbc.query("""
                         SELECT path, content, 1 - (embedding <=> CAST(? AS vector)) AS score
