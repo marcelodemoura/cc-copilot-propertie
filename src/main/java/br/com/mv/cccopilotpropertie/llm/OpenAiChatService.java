@@ -23,7 +23,7 @@ public class OpenAiChatService implements LlmClient {
     @Autowired
     public OpenAiChatService(
             @Value("${llm.openai.api-key}") String apiKey,
-            @Value("${llm.openai.model:gpt-4.1-mini}") String model,
+            @Value("${llm.openai.model:gpt-4o-mini}") String model,
             @Value("${llm.openai.temperature:}") String temperature
     ) {
         this(apiKey, model, parseTemperature(temperature), new RestTemplate());
