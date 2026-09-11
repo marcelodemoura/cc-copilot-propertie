@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "assistant_project", uniqueConstraints = @UniqueConstraint(columnNames = {"tenantId", "name"}))
+@Table(name = "assistant_project", uniqueConstraints = @UniqueConstraint(name = "uk_project_tenant_name", columnNames = {"tenant_id", "name"}))
 public class ProjectEntity {
 
     @Id
