@@ -16,6 +16,7 @@ spring:
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true
+    baseline-version: 0
 
   sql:
     init:
