@@ -15,10 +15,19 @@ public class SearchService {
     private final SearchRepository repo;
     private final ReRanker reranker;
 
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     public SearchService(EmbeddingService e, SearchRepository r, ReRanker rr) {
-        embedder = e;
-        repo = r;
-        reranker = rr;
+        this(e, r, rr, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SearchService(EmbeddingService e, SearchRepository r, ReRanker rr,
+                         @org.springframework.beans.factory.annotation.Autowired(required = false) io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this.embedder = e;
+        this.repo = r;
+        this.reranker = rr;
+        this.meterRegistry = meterRegistry;
     }
 
     private static final Set<String> STOP_WORDS = Set.of(
@@ -34,7 +43,18 @@ public class SearchService {
     }
 
     public List<SearchResult> search(String tenant, String kb, String question, int limit, int offset) {
+        String effectiveTenant = tenant != null ? tenant : "default";
+
+        long startEmbed = System.nanoTime();
         float[] q = embedder.embed(question);
+        long embedTimeMs = (System.nanoTime() - startEmbed) / 1_000_000;
+
+        if (meterRegistry != null) {
+            meterRegistry.timer("rag.embedding.time", "tenant", effectiveTenant)
+                    .record(embedTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+
+        long startSearch = System.nanoTime();
 
         var vectorResults = offset > 0
                 ? repo.search(tenant, kb, q, limit * 2, offset)
@@ -69,8 +89,22 @@ public class SearchService {
             merged.putIfAbsent(vr.path() + ":" + vr.content().hashCode(), vr);
         }
 
+        long searchTimeMs = (System.nanoTime() - startSearch) / 1_000_000;
+
+        if (meterRegistry != null) {
+            meterRegistry.timer("rag.search.time", "tenant", effectiveTenant)
+                    .record(searchTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            meterRegistry.counter("rag.queries.total", "tenant", effectiveTenant).increment();
+        }
+
         List<SearchResult> combined = new ArrayList<>(merged.values());
-        return reranker.rerank(question, combined, limit);
+        List<SearchResult> finalResults = reranker.rerank(question, combined, limit);
+
+        if (meterRegistry != null) {
+            meterRegistry.summary("rag.results.count", "tenant", effectiveTenant).record(finalResults.size());
+        }
+
+        return finalResults;
     }
 }
 

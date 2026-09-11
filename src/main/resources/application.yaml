@@ -68,3 +68,8 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [tenant=%X{tenantId:-none}] [req=%X{requestId:-none}] %-5level %logger{36} - %msg%n"
+
