@@ -29,4 +29,10 @@ public class CopilotController {
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter askStream(@Valid @RequestBody AskRequest req) {
         return copilot.askStream(req.tenantId(), req.knowledgeBase(), req.question(), req.sessionId());
     }
+
+    @PostMapping("/modify-file")
+    @Operation(summary = "Aplica modificação ou correção em um arquivo de código", description = "Substitui um trecho exato de código pelo novo trecho corrigido com criação automática de backup e diff unificado.")
+    public br.com.mv.cccopilotpropertie.copilot.code.FileModificationResult modifyFile(@Valid @RequestBody ModifyFileRequest req) {
+        return copilot.modifyFile(req.tenantId(), req.knowledgeBase(), req.path(), req.targetContent(), req.replacementContent(), req.reason());
+    }
 }

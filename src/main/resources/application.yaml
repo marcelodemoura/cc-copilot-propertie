@@ -49,6 +49,8 @@ copilot:
   policy:
     allow-contract-dto: true
     allow-internal-dto-leak: false
+  code-modification:
+    enabled: ${CODE_MODIFICATION_ENABLED:true}
 
 llm:
   openai:

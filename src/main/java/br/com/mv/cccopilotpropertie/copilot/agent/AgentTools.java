@@ -79,6 +79,25 @@ public class AgentTools {
         return null;
     }
 
+    @Tool("Modifica um arquivo de código existente substituindo um trecho específico de código pelo novo código corrigido.")
+    public String modify_file(
+            @P("Caminho do arquivo relativo à raiz do projeto (ex: src/main/java/br/com/mv/UsuarioDTO.java)") String path,
+            @P("Trecho exato do código existente a ser substituído (leia antes com 'read_file')") String targetContent,
+            @P("Novo trecho de código corrigido que substituirá o trecho alvo") String replacementContent,
+            @P(value = "Motivo ou justificativa técnica da correção", required = false) String reason
+    ) {
+        return null;
+    }
+
+    @Tool("Cria um novo arquivo de código ou sobrescreve integralmente um arquivo existente no projeto.")
+    public String write_file(
+            @P("Caminho do arquivo relativo à raiz do projeto (ex: src/main/java/br/com/mv/NovoServico.java)") String path,
+            @P("Conteúdo textual integral a ser gravado no arquivo") String content,
+            @P(value = "Motivo técnico da criação ou alteração do arquivo", required = false) String reason
+    ) {
+        return null;
+    }
+
     @SuppressWarnings("deprecation")
     public List<Map<String, Object>> all() {
         List<ToolSpecification> specs = ToolSpecifications.toolSpecificationsFrom(this);

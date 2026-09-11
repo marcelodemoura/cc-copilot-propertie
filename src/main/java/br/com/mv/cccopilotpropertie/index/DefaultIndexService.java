@@ -343,4 +343,24 @@ public class DefaultIndexService implements IndexService {
         UUID latest = latestJobByKb.get(knowledgeBase);
         return latest != null && cancelJob(latest);
     }
+
+    @Override
+    public void reindexSingleFile(String tenantId, String knowledgeBase, Path file) {
+        if (file == null || !Files.exists(file) || Files.isDirectory(file)) {
+            return;
+        }
+        try {
+            String pathStr = file.toString();
+            repo.deleteByPath(tenantId, knowledgeBase, pathStr);
+            String content = Files.readString(file);
+            String hash = computeSha256(content);
+            List<String> chunks = chunker.chunk(content);
+            List<PendingChunk> pending = new ArrayList<>();
+            for (String ch : chunks) {
+                pending.add(new PendingChunk(pathStr, ch, hash));
+            }
+            flushBatch(pending, tenantId, knowledgeBase);
+        } catch (Exception ignored) {
+        }
+    }
 }

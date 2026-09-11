@@ -9,6 +9,8 @@ import br.com.mv.cccopilotpropertie.search.application.SearchService;
 import br.com.mv.cccopilotpropertie.search.domain.SearchResult;
 import br.com.mv.cccopilotpropertie.search.infra.SearchRepository;
 import br.com.mv.cccopilotpropertie.project.infra.ProjectRepository;
+import br.com.mv.cccopilotpropertie.copilot.code.CodeModificationService;
+import br.com.mv.cccopilotpropertie.copilot.code.FileModificationResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,13 +36,24 @@ public class AgentToolExecutor {
     private final AuditService auditService;
     private final ProjectRepository projectRepository;
     private final String allowedBasePath;
+    private final CodeModificationService codeModificationService;
 
     public AgentToolExecutor(SearchService searchService,
                              SearchRepository searchRepository,
                              BreakingChangeAnalyzer breakingAnalyzer,
                              AlertService alertService,
                              AuditService auditService) {
-        this(searchService, searchRepository, breakingAnalyzer, alertService, auditService, null, ".");
+        this(searchService, searchRepository, breakingAnalyzer, alertService, auditService, null, ".", null);
+    }
+
+    public AgentToolExecutor(SearchService searchService,
+                             SearchRepository searchRepository,
+                             BreakingChangeAnalyzer breakingAnalyzer,
+                             AlertService alertService,
+                             AuditService auditService,
+                             ProjectRepository projectRepository,
+                             String allowedBasePath) {
+        this(searchService, searchRepository, breakingAnalyzer, alertService, auditService, projectRepository, allowedBasePath, null);
     }
 
     @Autowired
@@ -50,7 +63,8 @@ public class AgentToolExecutor {
                              AlertService alertService,
                              AuditService auditService,
                              @Autowired(required = false) ProjectRepository projectRepository,
-                             @Value("${indexer.base-path:.}") String allowedBasePath) {
+                             @Value("${indexer.base-path:.}") String allowedBasePath,
+                             @Autowired(required = false) CodeModificationService codeModificationService) {
         this.searchService = searchService;
         this.searchRepository = searchRepository;
         this.breakingAnalyzer = breakingAnalyzer;
@@ -58,6 +72,9 @@ public class AgentToolExecutor {
         this.auditService = auditService;
         this.projectRepository = projectRepository;
         this.allowedBasePath = allowedBasePath != null ? allowedBasePath : ".";
+        this.codeModificationService = codeModificationService != null
+                ? codeModificationService
+                : new CodeModificationService(true, this.allowedBasePath);
     }
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -78,6 +95,8 @@ public class AgentToolExecutor {
                 case "audit_dto" -> auditDto(args, tenantId, kb);
                 case "read_file" -> readFile(args, tenantId, kb);
                 case "list_files" -> listFiles(args, tenantId, kb);
+                case "modify_file" -> modifyFile(args, tenantId, kb);
+                case "write_file" -> writeFile(args, tenantId, kb);
                 default -> "Tool desconhecida: " + toolName;
             };
         } catch (Exception e) {
@@ -375,5 +394,58 @@ public class AgentToolExecutor {
             }
         }
         return Path.of(allowedBasePath).toAbsolutePath().normalize();
+    }
+
+    private String modifyFile(Map<String, Object> args, String tenantId, String kb) {
+        String path = (String) args.get("path");
+        String targetContent = (String) args.get("targetContent");
+        String replacementContent = (String) args.get("replacementContent");
+        String reason = (String) args.getOrDefault("reason", "");
+
+        if (path == null || targetContent == null || replacementContent == null) {
+            return "Erro: 'path', 'targetContent' e 'replacementContent' são parâmetros obrigatórios para modify_file.";
+        }
+
+        Path projectRoot = resolveProjectPath(kb);
+        FileModificationResult result = codeModificationService.modifyFile(
+                projectRoot, tenantId, kb, path, targetContent, replacementContent, reason
+        );
+        return formatModificationResult(result);
+    }
+
+    private String writeFile(Map<String, Object> args, String tenantId, String kb) {
+        String path = (String) args.get("path");
+        String content = (String) args.get("content");
+        String reason = (String) args.getOrDefault("reason", "");
+
+        if (path == null || content == null) {
+            return "Erro: 'path' e 'content' são parâmetros obrigatórios para write_file.";
+        }
+
+        Path projectRoot = resolveProjectPath(kb);
+        FileModificationResult result = codeModificationService.writeFile(
+                projectRoot, tenantId, kb, path, content, reason
+        );
+        return formatModificationResult(result);
+    }
+
+    private String formatModificationResult(FileModificationResult result) {
+        if (!result.success()) {
+            return "FALHA NA MODIFICAÇÃO DE CÓDIGO:\n" +
+                    "Arquivo: " + result.path() + "\n" +
+                    "Erro: " + result.message();
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("MODIFICAÇÃO DE CÓDIGO EXECUTADA COM SUCESSO:\n");
+        sb.append("Status: ").append(result.status()).append("\n");
+        sb.append("Arquivo: ").append(result.path()).append("\n");
+        if (result.backupPath() != null) {
+            sb.append("Backup criado em: ").append(result.backupPath()).append("\n");
+        }
+        sb.append("Mensagem: ").append(result.message()).append("\n");
+        if (result.diff() != null && !result.diff().isBlank()) {
+            sb.append("Diff aplicado:\n```diff\n").append(result.diff()).append("```\n");
+        }
+        return sb.toString();
     }
 }

@@ -141,4 +141,12 @@ public class ProjectController {
         ProjectEntity project = projects.get(id);
         return copilot.askStream(project.getTenantId(), id.toString(), request.question(), request.sessionId());
     }
+
+    @PostMapping("/{id}/modify-file")
+    @Operation(summary = "Aplica modificação em arquivo do projeto", description = "Aplica correção ou refatoração no arquivo dentro do projeto cadastrado.")
+    public br.com.mv.cccopilotpropertie.copilot.code.FileModificationResult modifyFile(
+            @PathVariable UUID id, @Valid @RequestBody ProjectModifyFileRequest request) {
+        ProjectEntity project = projects.get(id);
+        return copilot.modifyFile(project.getTenantId(), id.toString(), request.path(), request.targetContent(), request.replacementContent(), request.reason());
+    }
 }

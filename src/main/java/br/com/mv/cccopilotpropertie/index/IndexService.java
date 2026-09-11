@@ -17,4 +17,6 @@ public interface IndexService {
     boolean cancelJob(java.util.UUID jobId);
 
     boolean cancelLatestJob(String knowledgeBase);
+
+    default void reindexSingleFile(String tenantId, String knowledgeBase, java.nio.file.Path file) {}
 }

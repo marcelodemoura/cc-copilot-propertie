@@ -76,4 +76,25 @@ class CopilotControllerIntegrationTest {
                 .andExpect(jsonPath("$.details").exists())
                 .andExpect(jsonPath("$.timestamp").exists());
     }
+
+    @Test
+    void shouldModifyFileViaEndpoint() throws Exception {
+        when(copilotService.modifyFile(eq("tenant-a"), eq("kb-core"), eq("UsuarioDTO.java"), eq("old"), eq("new"), eq("test")))
+                .thenReturn(br.com.mv.cccopilotpropertie.copilot.code.FileModificationResult.success(
+                        "UsuarioDTO.java", "--- diff", "UsuarioDTO.java.bak", "Modificado com sucesso"
+                ));
+
+        ModifyFileRequest request = new ModifyFileRequest(
+                "tenant-a", "kb-core", "UsuarioDTO.java", "old", "new", "test"
+        );
+
+        mockMvc.perform(post("/copilot/modify-file")
+                        .header("X-API-Key", "test-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.status").value("MODIFIED"))
+                .andExpect(jsonPath("$.path").value("UsuarioDTO.java"));
+    }
 }

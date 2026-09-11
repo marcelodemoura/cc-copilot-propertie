@@ -203,6 +203,31 @@ curl -X GET "http://localhost:8080/copilot/audit/dtos?tenantId=hospital-central"
   -H "X-API-Key: local-dev-key"
 ```
 
+### 8. Modificação e Correção de Código (Pelo Agente ou via API)
+O copiloto pode **aplicar correções diretamente no código do projeto** durante o chat (via tools `modify_file` e `write_file`) ou através da API REST com geração automática de backup `.bak`, diff unificado e reindexação instantânea:
+```bash
+curl -X POST http://localhost:8080/projects/{projectId}/modify-file \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "path": "src/main/java/br/com/mv/MedicamentoDTO.java",
+    "targetContent": "    private String dosagem;\n",
+    "replacementContent": "    @Deprecated(since = \"2.1\")\n    private String dosagem;\n",
+    "reason": "Deprecar campo para manter retrocompatibilidade com clientes legados"
+  }'
+```
+Resposta detalhada com diff e backup:
+```json
+{
+  "success": true,
+  "path": "src/main/java/br/com/mv/MedicamentoDTO.java",
+  "status": "MODIFIED",
+  "diff": "--- a/src/main/java/br/com/mv/MedicamentoDTO.java\n+++ b/src/main/java/br/com/mv/MedicamentoDTO.java\n@@ Modificação @@\n-     private String dosagem;\n+     @Deprecated(since = \"2.1\")\n+     private String dosagem;\n",
+  "backupPath": ".../MedicamentoDTO.java.bak",
+  "message": "Código alterado com sucesso. Motivo: Deprecar campo para manter retrocompatibilidade..."
+}
+```
+
 ---
 
 ## 📊 Observabilidade e Saúde
