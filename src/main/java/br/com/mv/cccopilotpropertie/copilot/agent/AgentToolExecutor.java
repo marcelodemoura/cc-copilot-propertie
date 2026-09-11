@@ -202,17 +202,21 @@ public class AgentToolExecutor {
         }
         target = target.normalize().toAbsolutePath();
 
-        Path allowed = Path.of(allowedBasePath).normalize().toAbsolutePath();
-        if (!target.startsWith(projectRoot) && !target.startsWith(allowed)) {
-            return "Acesso negado: O arquivo está fora do diretório do projeto: " + target;
-        }
-
         if (!Files.exists(target) || Files.isDirectory(target)) {
             return "Arquivo não encontrado ou é um diretório: " + rawPath;
         }
 
         try {
-            List<String> lines = Files.readAllLines(target, StandardCharsets.UTF_8);
+            Path realTarget = target.toRealPath();
+            Path realProjectRoot = Files.exists(projectRoot) ? projectRoot.toRealPath() : projectRoot;
+            Path allowed = Path.of(allowedBasePath).normalize().toAbsolutePath();
+            Path realAllowed = Files.exists(allowed) ? allowed.toRealPath() : allowed;
+
+            if (!realTarget.startsWith(realProjectRoot) && !realTarget.startsWith(realAllowed)) {
+                return "Acesso negado: O arquivo está fora do diretório do projeto: " + target;
+            }
+
+            List<String> lines = Files.readAllLines(realTarget, StandardCharsets.UTF_8);
             int totalLines = lines.size();
 
             int start = args.containsKey("startLine") && args.get("startLine") != null
@@ -227,7 +231,7 @@ public class AgentToolExecutor {
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("ARQUIVO: ").append(target).append(" (linhas ").append(start).append(" a ").append(end).append(" de ").append(totalLines).append(")\n");
+            sb.append("ARQUIVO: ").append(realTarget).append(" (linhas ").append(start).append(" a ").append(end).append(" de ").append(totalLines).append(")\n");
             for (int i = start - 1; i < end; i++) {
                 sb.append(i + 1).append(": ").append(lines.get(i)).append("\n");
             }
@@ -251,16 +255,20 @@ public class AgentToolExecutor {
         Path projectRoot = resolveProjectPath(kb);
         Path target = projectRoot.resolve(subPath).normalize().toAbsolutePath();
 
-        Path allowed = Path.of(allowedBasePath).normalize().toAbsolutePath();
-        if (!target.startsWith(projectRoot) && !target.startsWith(allowed)) {
-            return "Acesso negado: Diretório fora do projeto: " + target;
-        }
-
         if (!Files.exists(target) || !Files.isDirectory(target)) {
             return "Diretório não encontrado: " + subPath;
         }
 
         try {
+            Path realTarget = target.toRealPath();
+            Path realProjectRoot = Files.exists(projectRoot) ? projectRoot.toRealPath() : projectRoot;
+            Path allowed = Path.of(allowedBasePath).normalize().toAbsolutePath();
+            Path realAllowed = Files.exists(allowed) ? allowed.toRealPath() : allowed;
+
+            if (!realTarget.startsWith(realProjectRoot) && !realTarget.startsWith(realAllowed)) {
+                return "Acesso negado: Diretório fora do projeto: " + target;
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.append("ÁRVORE DE ARQUIVOS: ").append(target).append(" (profundidade: ").append(maxDepth).append(")\n");
             List<String> treeLines = new ArrayList<>();

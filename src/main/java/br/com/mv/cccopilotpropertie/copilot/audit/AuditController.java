@@ -18,15 +18,15 @@ public class AuditController {
     }
 
     @GetMapping("/dtos")
-    @Operation(summary = "DTOs mais auditados", description = "Retorna os DTOs com mais execuções de auditoria, ordenados por frequência.")
-    public List<AuditSummary> topDtos() {
-        return metrics.topDtos();
+    @Operation(summary = "DTOs mais auditados", description = "Retorna os DTOs com mais execuções de auditoria para o tenant, ordenados por frequência.")
+    public List<AuditSummary> topDtos(@RequestParam(value = "tenantId", defaultValue = "default") String tenantId) {
+        return metrics.topDtos(tenantId);
     }
 
     @GetMapping("/projects")
-    @Operation(summary = "Auditoria por projeto")
-    public List<AuditSummary> byProject() {
-        return metrics.byProject();
+    @Operation(summary = "Auditoria por projeto", description = "Retorna métricas de auditoria agrupadas por projeto para o tenant.")
+    public List<AuditSummary> byProject(@RequestParam(value = "tenantId", defaultValue = "default") String tenantId) {
+        return metrics.byProject(tenantId);
     }
 }
 

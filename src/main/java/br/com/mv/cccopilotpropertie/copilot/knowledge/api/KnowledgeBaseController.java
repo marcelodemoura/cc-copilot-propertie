@@ -17,6 +17,12 @@ public class KnowledgeBaseController {
         this.service = service;
     }
 
+    @GetMapping
+    @Operation(summary = "Lista bases de conhecimento do tenant")
+    public java.util.List<KnowledgeBaseEntity> list(@PathVariable String tenantId) {
+        return service.list(tenantId);
+    }
+
     @PostMapping
     @Operation(summary = "Cria uma base de conhecimento")
     public KnowledgeBaseEntity create(@PathVariable String tenantId,

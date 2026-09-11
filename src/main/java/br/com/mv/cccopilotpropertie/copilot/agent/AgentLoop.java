@@ -225,11 +225,18 @@ public class AgentLoop {
             if (line.startsWith("ARQUIVO:")) {
                 String[] parts = line.replace("ARQUIVO:", "").trim().split("\\(score:");
                 String path = parts[0].trim();
-                double score = parts.length > 1
-                        ? Double.parseDouble(parts[1].replace(")", "").trim())
-                        : 1.0;
+                double score = 1.0;
+                if (parts.length > 1) {
+                    try {
+                        String clean = parts[1].replace(")", "").replace(',', '.').trim();
+                        score = Double.parseDouble(clean);
+                    } catch (Exception ignored) {
+                        score = 1.0;
+                    }
+                }
+                double finalScore = score;
                 if (sources.stream().noneMatch(s -> s.path().equals(path))) {
-                    sources.add(new CopilotAnswer.Source(path, score));
+                    sources.add(new CopilotAnswer.Source(path, finalScore));
                 }
             }
         }

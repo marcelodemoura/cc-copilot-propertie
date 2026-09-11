@@ -1,10 +1,15 @@
 package br.com.mv.cccopilotpropertie.copilot.audit;
 
 import jakarta.persistence.*;
+import lombok.Getter;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "copilot_audit_execution")
+@Table(name = "copilot_audit_execution", indexes = {
+        @Index(name = "idx_audit_tenant_kb", columnList = "tenantId, knowledgeBase"),
+        @Index(name = "idx_audit_dto", columnList = "tenantId, dtoName")
+})
+@Getter
 public class AuditExecution {
 
     @Id

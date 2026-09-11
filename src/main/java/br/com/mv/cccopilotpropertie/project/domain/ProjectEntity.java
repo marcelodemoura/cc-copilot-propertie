@@ -39,4 +39,17 @@ public class ProjectEntity {
     public String getName() { return name; }
     public String getRootPath() { return rootPath; }
     public Instant getCreatedAt() { return createdAt; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ProjectEntity that = (ProjectEntity) o;
+        return java.util.Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hashCode(id);
+    }
 }

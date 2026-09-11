@@ -18,4 +18,8 @@ public class KnowledgeBaseService {
         return repo.save(kb);
     }
 
+    public java.util.List<KnowledgeBaseEntity> list(String tenantId) {
+        return repo.findByTenantId(tenantId != null ? tenantId.trim() : "default");
+    }
+
 }

@@ -116,13 +116,18 @@ public class DefaultIndexService implements IndexService {
 
         java.util.concurrent.CompletableFuture<Void> future = java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                jobs.put(jobId, jobs.get(jobId).withProgress("SCANNING", 0, 0, 0, "Varrendo arquivos do projeto..."));
+                if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+                    jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
+                    return;
+                }
+
+                updateProgress(jobId, "SCANNING", 0, 0, 0, "Varrendo arquivos do projeto...");
 
                 List<Path> files = scanner.scan(root);
                 int totalFiles = files.size();
 
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
-                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                     return;
                 }
 
@@ -134,13 +139,13 @@ public class DefaultIndexService implements IndexService {
 
                 for (Path file : files) {
                     if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
-                        jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                        jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                         return;
                     }
 
                     fileCount++;
                     String fileName = file.getFileName().toString();
-                    jobs.put(jobId, jobs.get(jobId).withProgress("INDEXING", totalFiles, fileCount, chunkCount, fileName));
+                    updateProgress(jobId, "INDEXING", totalFiles, fileCount, chunkCount, fileName);
 
                     String content;
                     try {
@@ -151,7 +156,7 @@ public class DefaultIndexService implements IndexService {
 
                     for (String chunk : chunker.chunk(content)) {
                         if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
-                            jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                            jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                             return;
                         }
 
@@ -160,31 +165,38 @@ public class DefaultIndexService implements IndexService {
                         if (pending.size() >= BATCH_SIZE) {
                             flushBatch(pending, tenantId, knowledgeBase);
                             if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
-                                jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                                jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                                 return;
                             }
-                            jobs.put(jobId, jobs.get(jobId).withProgress("INDEXING", totalFiles, fileCount, chunkCount, fileName));
+                            updateProgress(jobId, "INDEXING", totalFiles, fileCount, chunkCount, fileName);
                         }
                     }
                 }
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
-                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                     return;
                 }
 
                 flushBatch(pending, tenantId, knowledgeBase);
 
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
-                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                     return;
                 }
 
-                jobs.put(jobId, jobs.get(jobId).completed(totalFiles, chunkCount));
+                final int finalChunkCount = chunkCount;
+                jobs.computeIfPresent(jobId, (id, current) -> {
+                    if ("CANCELLED".equals(current.status())) return current;
+                    return current.completed(totalFiles, finalChunkCount);
+                });
             } catch (Exception e) {
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
-                    jobs.put(jobId, jobs.get(jobId).cancelled("Indexação cancelada pelo usuário"));
+                    jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                 } else {
-                    jobs.put(jobId, jobs.get(jobId).failed(e.getMessage() != null ? e.getMessage() : "Erro inesperado"));
+                    jobs.computeIfPresent(jobId, (id, current) -> {
+                        if ("CANCELLED".equals(current.status())) return current;
+                        return current.failed(e.getMessage() != null ? e.getMessage() : "Erro inesperado");
+                    });
                 }
             } finally {
                 runningFutures.remove(jobId);
@@ -195,6 +207,18 @@ public class DefaultIndexService implements IndexService {
         runningFutures.put(jobId, future);
 
         return initial;
+    }
+
+    private void updateProgress(UUID jobId, String stage, int total, int processed, int chunks, String file) {
+        if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
+            return;
+        }
+        jobs.computeIfPresent(jobId, (id, current) -> {
+            if ("CANCELLED".equals(current.status())) {
+                return current;
+            }
+            return current.withProgress(stage, total, processed, chunks, file);
+        });
     }
 
     private static final int BATCH_SIZE = 100;

@@ -14,14 +14,33 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
-    public ResponseEntity<Map<String, String>> handleInvalidRequest(Exception ex) {
-        String message = ex instanceof MethodArgumentNotValidException validation
-                ? validation.getBindingResult().getFieldErrors().stream()
-                    .findFirst().map(error -> error.getField() + " " + error.getDefaultMessage())
-                    .orElse("Requisição inválida")
-                : ex.getMessage();
-        return ResponseEntity.badRequest().body(Map.of("error", message));
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleResourceNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(404).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<Map<String, String>> handleSecurityException(SecurityException ex) {
+        log.warn("Violação de segurança detectada: {}", ex.getMessage());
+        return ResponseEntity.status(403).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex) {
+        java.util.Map<String, String> errors = new java.util.LinkedHashMap<>();
+        for (org.springframework.validation.FieldError error : ex.getBindingResult().getFieldErrors()) {
+            errors.put(error.getField(), error.getDefaultMessage() != null ? error.getDefaultMessage() : "Inválido");
+        }
+        String firstMessage = errors.values().stream().findFirst().orElse("Requisição inválida");
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", firstMessage,
+                "details", errors
+        ));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage() != null ? ex.getMessage() : "Requisição inválida"));
     }
 
     @ExceptionHandler(HttpClientErrorException.class)
