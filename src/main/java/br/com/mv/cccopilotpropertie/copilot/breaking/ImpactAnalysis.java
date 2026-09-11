@@ -13,38 +13,47 @@ public record ImpactAnalysis(
             ChangeSet change,
             SearchRepository repository
     ) {
+        if (change == null) {
+            return new ImpactAnalysis(false, false);
+        }
 
         boolean internalUsage = false;
         boolean breaksHttpContract = false;
 
-        // ==================================================
-        // FIELD — remoção de campo
-        // ==================================================
-        if (change.target() == ChangeTarget.FIELD
-                && change.type() == ChangeType.REMOVE) {
+        String field = change.elementName();
+        String dto = change.dtoName();
 
-            String field = change.elementName();
-            String dto = change.dtoName();
+        // 1️⃣ Quebra de contrato HTTP / externo
+        // Se o DTO associado à alteração for utilizado em endpoints REST ou em outras KBs,
+        // a alteração de contrato quebra a compatibilidade externa, INDEPENDENTE de uso interno!
+        if (dto != null && !dto.isBlank()) {
+            boolean inEndpoints = !repository.findEndpointsUsingDto(tenantId, knowledgeBase, dto).isEmpty();
+            boolean inOtherKbs = !repository.findUsagesInOtherKnowledgeBases(tenantId, knowledgeBase, dto).isEmpty();
+            breaksHttpContract = inEndpoints || inOtherKbs;
+        } else if (change.target() == ChangeTarget.DTO && field != null && !field.isBlank()) {
+            boolean inEndpoints = !repository.findEndpointsUsingDto(tenantId, knowledgeBase, field).isEmpty();
+            boolean inOtherKbs = !repository.findUsagesInOtherKnowledgeBases(tenantId, knowledgeBase, field).isEmpty();
+            breaksHttpContract = inEndpoints || inOtherKbs;
+        } else if (change.target() == ChangeTarget.ENDPOINT) {
+            breaksHttpContract = true;
+        }
 
-            // 1️⃣ Uso interno real
-            internalUsage = repository
-                    .findUsagesByClassName(tenantId, knowledgeBase, field)
-                    .stream()
-                    .anyMatch(r ->
-                            r.content().contains("." + field)
-                                    || r.content().contains("get" + capitalize(field))
-                    );
-
-            // 2️⃣ Quebra de contrato HTTP (PASSO 16 REAL)
-            if (dto != null && internalUsage) {
-                breaksHttpContract =
-                        !repository
-                                .findEndpointsUsingDto(
-                                        tenantId,
-                                        knowledgeBase,
-                                        dto
-                                )
-                                .isEmpty();
+        // 2️⃣ Uso interno real
+        if (field != null && !field.isBlank()) {
+            if (change.target() == ChangeTarget.FIELD) {
+                internalUsage = repository
+                        .findUsagesByClassName(tenantId, knowledgeBase, field)
+                        .stream()
+                        .anyMatch(r ->
+                                r.content().contains("." + field)
+                                        || r.content().contains("get" + capitalize(field))
+                                        || r.content().contains("set" + capitalize(field))
+                                        || r.content().contains("is" + capitalize(field))
+                        );
+            } else if (change.target() == ChangeTarget.DTO) {
+                internalUsage = !repository
+                        .findUsagesByClassName(tenantId, knowledgeBase, field)
+                        .isEmpty();
             }
         }
 

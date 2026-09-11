@@ -120,10 +120,32 @@ public class AgentToolExecutor {
     private String analyzeBreaking(Map<String, Object> args, String tenantId, String kb) {
         String fieldName = (String) args.get("fieldName");
         String dtoName = (String) args.get("dtoName");
+        String typeStr = (String) args.getOrDefault("changeType", "REMOVE");
+        String targetStr = (String) args.getOrDefault("target", "FIELD");
+        Object beforeState = args.get("beforeState");
+        Object afterState = args.get("afterState");
 
-        ChangeSet change = new ChangeSet(ChangeTarget.FIELD, ChangeType.REMOVE, fieldName, dtoName, null, null);
+        ChangeType changeType;
+        try {
+            changeType = ChangeType.valueOf(typeStr.toUpperCase());
+        } catch (Exception e) {
+            changeType = ChangeType.REMOVE;
+        }
+
+        ChangeTarget changeTarget;
+        try {
+            changeTarget = ChangeTarget.valueOf(targetStr.toUpperCase());
+        } catch (Exception e) {
+            changeTarget = ChangeTarget.FIELD;
+        }
+
+        ChangeSet change = new ChangeSet(changeTarget, changeType, fieldName, dtoName, beforeState, afterState);
         ImpactAnalysis impact = ImpactAnalysis.from(tenantId, kb, change, searchRepository);
         BreakingAnalysisResult result = breakingAnalyzer.analyze(change, impact);
+        AlertResult alert = alertService.evaluateBreaking(result).orElse(null);
+
+        // Registra decisão arquitetural na auditoria
+        auditService.recordChangeDecision(tenantId, kb, change, result, alert);
 
         return """
                 Campo: %s | DTO: %s
@@ -131,13 +153,15 @@ public class AgentToolExecutor {
                 Motivo: %s
                 Requer versionamento: %s
                 Uso interno: %s | Quebra contrato HTTP: %s
+                Alerta: %s
                 """.formatted(
                 fieldName, dtoName,
                 result.breakingType(),
                 result.reason(),
                 result.requiresVersioning() ? "SIM" : "NÃO",
                 impact.internalUsage() ? "SIM" : "NÃO",
-                impact.breaksHttpContract() ? "SIM" : "NÃO"
+                impact.breaksHttpContract() ? "SIM" : "NÃO",
+                alert != null ? alert.level() + " — " + alert.message() : "nenhum"
         );
     }
 
