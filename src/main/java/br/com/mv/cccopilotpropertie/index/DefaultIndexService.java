@@ -10,9 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class DefaultIndexService implements IndexService {
@@ -67,11 +65,14 @@ public class DefaultIndexService implements IndexService {
         int fileCount = 0;
         int chunkCount = 0;
 
-        repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
-
+        Map<String, String> existingHashes = repo.findExistingFileHashes(tenantId, knowledgeBase);
+        Set<String> seenPaths = new HashSet<>();
         List<PendingChunk> pending = new ArrayList<>();
+
         for (Path file : scanner.scan(root)) {
             fileCount++;
+            String pathStr = file.toString();
+            seenPaths.add(pathStr);
 
             String content;
             try {
@@ -80,15 +81,30 @@ public class DefaultIndexService implements IndexService {
                 continue;
             }
 
+            String hash = computeSha256(content);
+            if (hash.equals(existingHashes.get(pathStr))) {
+                continue;
+            }
+
+            if (existingHashes.containsKey(pathStr)) {
+                repo.deleteByPath(tenantId, knowledgeBase, pathStr);
+            }
+
             for (String chunk : chunker.chunk(content)) {
                 chunkCount++;
-                pending.add(new PendingChunk(file.toString(), chunk));
+                pending.add(new PendingChunk(pathStr, chunk, hash));
                 if (pending.size() >= BATCH_SIZE) {
                     flushBatch(pending, tenantId, knowledgeBase);
                 }
             }
         }
         flushBatch(pending, tenantId, knowledgeBase);
+
+        for (String oldPath : existingHashes.keySet()) {
+            if (!seenPaths.contains(oldPath)) {
+                repo.deleteByPath(tenantId, knowledgeBase, oldPath);
+            }
+        }
 
         return new IndexResult(jobId, fileCount, chunkCount);
     }
@@ -131,7 +147,8 @@ public class DefaultIndexService implements IndexService {
                     return;
                 }
 
-                repo.deleteByKnowledgeBase(tenantId, knowledgeBase);
+                Map<String, String> existingHashes = repo.findExistingFileHashes(tenantId, knowledgeBase);
+                Set<String> seenPaths = new HashSet<>();
 
                 int fileCount = 0;
                 int chunkCount = 0;
@@ -144,6 +161,8 @@ public class DefaultIndexService implements IndexService {
                     }
 
                     fileCount++;
+                    String pathStr = file.toString();
+                    seenPaths.add(pathStr);
                     String fileName = file.getFileName().toString();
                     updateProgress(jobId, "INDEXING", totalFiles, fileCount, chunkCount, fileName);
 
@@ -154,6 +173,15 @@ public class DefaultIndexService implements IndexService {
                         continue;
                     }
 
+                    String hash = computeSha256(content);
+                    if (hash.equals(existingHashes.get(pathStr))) {
+                        continue;
+                    }
+
+                    if (existingHashes.containsKey(pathStr)) {
+                        repo.deleteByPath(tenantId, knowledgeBase, pathStr);
+                    }
+
                     for (String chunk : chunker.chunk(content)) {
                         if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
                             jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
@@ -161,7 +189,7 @@ public class DefaultIndexService implements IndexService {
                         }
 
                         chunkCount++;
-                        pending.add(new PendingChunk(file.toString(), chunk));
+                        pending.add(new PendingChunk(pathStr, chunk, hash));
                         if (pending.size() >= BATCH_SIZE) {
                             flushBatch(pending, tenantId, knowledgeBase);
                             if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted()) {
@@ -179,6 +207,12 @@ public class DefaultIndexService implements IndexService {
 
                 flushBatch(pending, tenantId, knowledgeBase);
 
+                for (String oldPath : existingHashes.keySet()) {
+                    if (!seenPaths.contains(oldPath)) {
+                        repo.deleteByPath(tenantId, knowledgeBase, oldPath);
+                    }
+                }
+
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
                     jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                     return;
@@ -190,6 +224,9 @@ public class DefaultIndexService implements IndexService {
                     return current.completed(totalFiles, finalChunkCount);
                 });
             } catch (Exception e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
                 if (cancelledJobs.contains(jobId) || Thread.currentThread().isInterrupted() || (jobs.containsKey(jobId) && "CANCELLED".equals(jobs.get(jobId).status()))) {
                     jobs.computeIfPresent(jobId, (id, current) -> current.cancelled("Indexação cancelada pelo usuário"));
                 } else {
@@ -222,7 +259,7 @@ public class DefaultIndexService implements IndexService {
     }
 
     private static final int BATCH_SIZE = 100;
-    private record PendingChunk(String path, String chunk) {}
+    private record PendingChunk(String path, String chunk, String hash) {}
 
     private void flushBatch(
             List<PendingChunk> batch,
@@ -247,12 +284,27 @@ public class DefaultIndexService implements IndexService {
                     knowledgeBase,
                     item.path(),
                     item.chunk(),
-                    vector
+                    vector,
+                    item.hash()
             ));
         }
 
         repo.saveBatch(records);
         batch.clear();
+    }
+
+    private String computeSha256(String content) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] bytes = md.digest(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return Integer.toHexString(content.hashCode());
+        }
     }
 
     @Override

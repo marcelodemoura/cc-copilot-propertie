@@ -22,19 +22,32 @@ public class PostgresSearchRepository implements SearchRepository {
             float[] vector,
             int limit
     ) {
+        return search(tenantId, knowledgeBase, vector, limit, 0);
+    }
+
+    @Override
+    public List<SearchResult> search(
+            String tenantId,
+            String knowledgeBase,
+            float[] vector,
+            int limit,
+            int offset
+    ) {
         if (vector == null || vector.length != br.com.mv.cccopilotpropertie.config.EmbeddingConfig.DIMENSION) {
             throw new IllegalArgumentException("Search vector dimension mismatch: expected "
                     + br.com.mv.cccopilotpropertie.config.EmbeddingConfig.DIMENSION
                     + ", but got " + (vector == null ? 0 : vector.length));
         }
-        int candidateLimit = Math.max(limit * 3, 30);
+        int effectiveOffset = Math.max(0, offset);
+        int candidateLimit = Math.max(limit * 3, 30) + effectiveOffset;
+
         List<SearchResult> raw = jdbc.query("""
                         SELECT path, content, 1 - (embedding <=> CAST(? AS vector)) AS score
                         FROM code_embeddings
                         WHERE tenant_id = ?
                           AND knowledge_base = ?
                         ORDER BY embedding <=> CAST(? AS vector)
-                        LIMIT ?
+                        LIMIT ? OFFSET ?
                         """,
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
@@ -45,7 +58,8 @@ public class PostgresSearchRepository implements SearchRepository {
                 tenantId,
                 knowledgeBase,
                 vectorLiteral(vector),
-                candidateLimit
+                candidateLimit,
+                effectiveOffset
         );
 
         // Garante diversidade: no máximo 2 chunks por arquivo para evitar monopólio
@@ -71,10 +85,22 @@ public class PostgresSearchRepository implements SearchRepository {
             String keyword,
             int limit
     ) {
+        return searchKeyword(tenantId, knowledgeBase, keyword, limit, 0);
+    }
+
+    @Override
+    public List<SearchResult> searchKeyword(
+            String tenantId,
+            String knowledgeBase,
+            String keyword,
+            int limit,
+            int offset
+    ) {
         if (keyword == null || keyword.isBlank() || keyword.trim().length() < 3) {
             return List.of();
         }
 
+        int effectiveOffset = Math.max(0, offset);
         String pattern = "%" + keyword.trim() + "%";
         return jdbc.query("""
                 SELECT path, content, 1.0 AS score
@@ -83,7 +109,7 @@ public class PostgresSearchRepository implements SearchRepository {
                   AND knowledge_base = ?
                   AND (path ILIKE ? OR content ILIKE ?)
                 ORDER BY CASE WHEN path ILIKE ? THEN 0 ELSE 1 END, id
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
                 (rs, i) -> new SearchResult(
                         rs.getString("path"),
@@ -95,7 +121,8 @@ public class PostgresSearchRepository implements SearchRepository {
                 pattern,
                 pattern,
                 pattern,
-                limit
+                limit,
+                effectiveOffset
         );
     }
 
