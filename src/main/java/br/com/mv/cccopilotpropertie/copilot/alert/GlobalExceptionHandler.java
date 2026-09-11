@@ -15,14 +15,14 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<Map<String, String>> handleResourceNotFound(ResourceNotFoundException ex) {
-        return ResponseEntity.status(404).body(Map.of("error", ex.getMessage()));
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(404).body(buildErrorBody(404, ex.getMessage(), null));
     }
 
     @ExceptionHandler(SecurityException.class)
-    public ResponseEntity<Map<String, String>> handleSecurityException(SecurityException ex) {
+    public ResponseEntity<Map<String, Object>> handleSecurityException(SecurityException ex) {
         log.warn("Violação de segurança detectada: {}", ex.getMessage());
-        return ResponseEntity.status(403).body(Map.of("error", ex.getMessage()));
+        return ResponseEntity.status(403).body(buildErrorBody(403, ex.getMessage(), null));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -32,19 +32,16 @@ public class GlobalExceptionHandler {
             errors.put(error.getField(), error.getDefaultMessage() != null ? error.getDefaultMessage() : "Inválido");
         }
         String firstMessage = errors.values().stream().findFirst().orElse("Requisição inválida");
-        return ResponseEntity.badRequest().body(Map.of(
-                "error", firstMessage,
-                "details", errors
-        ));
+        return ResponseEntity.badRequest().body(buildErrorBody(400, firstMessage, errors));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage() != null ? ex.getMessage() : "Requisição inválida"));
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(buildErrorBody(400, ex.getMessage() != null ? ex.getMessage() : "Requisição inválida", null));
     }
 
     @ExceptionHandler(HttpClientErrorException.class)
-    public ResponseEntity<Map<String, String>> handleOpenAiError(HttpClientErrorException ex) {
+    public ResponseEntity<Map<String, Object>> handleOpenAiError(HttpClientErrorException ex) {
         log.error("Erro na chamada OpenAI: {} — {}", ex.getStatusCode(), ex.getResponseBodyAsString());
         String detail = switch (ex.getStatusCode().value()) {
             case 401 -> "OPENAI_API_KEY inválida ou não configurada.";
@@ -52,17 +49,28 @@ public class GlobalExceptionHandler {
             case 400 -> "Requisição inválida para a OpenAI: " + ex.getResponseBodyAsString();
             default  -> "Erro na OpenAI (%d): %s".formatted(ex.getStatusCode().value(), ex.getResponseBodyAsString());
         };
-        return ResponseEntity.status(502).body(Map.of("error", detail));
+        return ResponseEntity.status(502).body(buildErrorBody(502, detail, null));
     }
 
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
-        return ResponseEntity.status(404).body(Map.of("error", "Recurso não encontrado: " + ex.getResourcePath()));
+    public ResponseEntity<Map<String, Object>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        return ResponseEntity.status(404).body(buildErrorBody(404, "Recurso não encontrado: " + ex.getResourcePath(), null));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
         log.error("Erro inesperado", ex);
-        return ResponseEntity.internalServerError().body(Map.of("error", ex.getClass().getSimpleName() + ": " + ex.getMessage()));
+        return ResponseEntity.internalServerError().body(buildErrorBody(500, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null));
+    }
+
+    private Map<String, Object> buildErrorBody(int status, String error, Object details) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("status", status);
+        body.put("error", error);
+        if (details != null) {
+            body.put("details", details);
+        }
+        body.put("timestamp", java.time.OffsetDateTime.now().toString());
+        return body;
     }
 }
