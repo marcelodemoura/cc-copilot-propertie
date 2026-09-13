@@ -16,6 +16,8 @@ import java.util.UUID;
 @Service
 public class CopilotService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CopilotService.class);
+
     private final AgentLoop agentLoop;
     private final CopilotHistoryService historyService;
     private final CodeModificationService codeModificationService;
@@ -73,6 +75,7 @@ public class CopilotService {
                         .name("complete").data(answer));
                 emitter.complete();
             } catch (Exception e) {
+                log.error("Erro durante o processamento do chat/stream [tenant={}, kb={}, session={}]: {}", tenantId, kb, sessionId, e.getMessage(), e);
                 try {
                     String msg = e.getMessage() != null ? e.getMessage() : "Erro inesperado";
                     if (e instanceof org.springframework.web.client.HttpStatusCodeException se) {
