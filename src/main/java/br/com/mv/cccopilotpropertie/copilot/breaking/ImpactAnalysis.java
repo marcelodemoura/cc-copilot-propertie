@@ -41,19 +41,30 @@ public record ImpactAnalysis(
         // 2️⃣ Uso interno real
         if (field != null && !field.isBlank()) {
             if (change.target() == ChangeTarget.FIELD) {
-                internalUsage = repository
-                        .findUsagesByClassName(tenantId, knowledgeBase, field)
-                        .stream()
-                        .anyMatch(r ->
-                                r.content().contains("." + field)
-                                        || r.content().contains("get" + capitalize(field))
-                                        || r.content().contains("set" + capitalize(field))
-                                        || r.content().contains("is" + capitalize(field))
-                        );
+                java.util.List<br.com.mv.cccopilotpropertie.search.domain.SearchResult> usages =
+                        new java.util.ArrayList<>(repository.findUsagesByClassName(tenantId, knowledgeBase, field));
+                if (dto != null && !dto.isBlank() && !dto.equalsIgnoreCase(field)) {
+                    usages.addAll(repository.findUsagesByClassName(tenantId, knowledgeBase, dto));
+                }
+
+                String capField = capitalize(field);
+                internalUsage = usages.stream().anyMatch(r -> {
+                    String c = r.content();
+                    return c.contains("." + field)
+                            || c.contains("get" + capField)
+                            || c.contains("set" + capField)
+                            || c.contains("is" + capField)
+                            || c.contains("with" + capField)
+                            || c.contains(field + ":")
+                            || c.contains("\"" + field + "\"");
+                });
             } else if (change.target() == ChangeTarget.DTO) {
-                internalUsage = !repository
-                        .findUsagesByClassName(tenantId, knowledgeBase, field)
-                        .isEmpty();
+                String targetDto = (field != null && !field.isBlank()) ? field : dto;
+                if (targetDto != null && !targetDto.isBlank()) {
+                    internalUsage = !repository
+                            .findUsagesByClassName(tenantId, knowledgeBase, targetDto)
+                            .isEmpty();
+                }
             }
         }
 

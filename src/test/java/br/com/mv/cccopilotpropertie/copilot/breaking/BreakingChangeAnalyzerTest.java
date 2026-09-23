@@ -91,4 +91,31 @@ class BreakingChangeAnalyzerTest {
         assertEquals(BreakingType.BREAKING, result.breakingType());
         assertTrue(result.requiresVersioning());
     }
+
+    @Test
+    void addingPrimitiveOrConstrainedFieldInHttpContractShouldBeBreaking() {
+        // 1. Primitive int (cannot be null)
+        ChangeSet changePrimitive = new ChangeSet(
+                ChangeTarget.FIELD, ChangeType.ADD, "age", "CustomerDto", null, "int age"
+        );
+        BreakingAnalysisResult resPrimitive = analyzer.analyze(changePrimitive, new ImpactAnalysis(false, true));
+        assertEquals(BreakingType.BREAKING, resPrimitive.breakingType());
+        assertTrue(resPrimitive.requiresVersioning());
+
+        // 2. @Size(min = 1)
+        ChangeSet changeSize = new ChangeSet(
+                ChangeTarget.FIELD, ChangeType.ADD, "code", "CustomerDto", null, "@Size(min = 1, max = 20) String code"
+        );
+        BreakingAnalysisResult resSize = analyzer.analyze(changeSize, new ImpactAnalysis(false, true));
+        assertEquals(BreakingType.BREAKING, resSize.breakingType());
+        assertTrue(resSize.requiresVersioning());
+
+        // 3. @JsonProperty(required = true)
+        ChangeSet changeJson = new ChangeSet(
+                ChangeTarget.FIELD, ChangeType.ADD, "secret", "CustomerDto", null, "@JsonProperty(required = true) String secret"
+        );
+        BreakingAnalysisResult resJson = analyzer.analyze(changeJson, new ImpactAnalysis(false, true));
+        assertEquals(BreakingType.BREAKING, resJson.breakingType());
+        assertTrue(resJson.requiresVersioning());
+    }
 }

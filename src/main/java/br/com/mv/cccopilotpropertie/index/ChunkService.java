@@ -49,13 +49,21 @@ public class ChunkService {
             return chunks;
         }
 
-        if (isController(text) && text.length() <= 3000) {
-            chunks.add(enrichControllerChunk(text));
+        if (isController(text)) {
+            if (text.length() <= 3000) {
+                chunks.add(enrichControllerChunk(text));
+            } else {
+                chunks.addAll(chunkJavaClassByMethods(text, "CONTROLLER / API"));
+            }
             return chunks;
         }
 
-        if (isService(text) && text.length() <= 3000) {
-            chunks.add(enrichServiceChunk(text));
+        if (isService(text)) {
+            if (text.length() <= 3000) {
+                chunks.add(enrichServiceChunk(text));
+            } else {
+                chunks.addAll(chunkJavaClassByMethods(text, "SERVICE"));
+            }
             return chunks;
         }
 
@@ -72,12 +80,25 @@ public class ChunkService {
             }
 
             if (isController(block)) {
-                chunks.add(enrichControllerChunk(block));
+                if (block.length() <= 3000) {
+                    chunks.add(enrichControllerChunk(block));
+                } else {
+                    chunks.addAll(chunkJavaClassByMethods(block, "CONTROLLER / API"));
+                }
                 continue;
             }
 
             if (isService(block)) {
-                chunks.add(enrichServiceChunk(block));
+                if (block.length() <= 3000) {
+                    chunks.add(enrichServiceChunk(block));
+                } else {
+                    chunks.addAll(chunkJavaClassByMethods(block, "SERVICE"));
+                }
+                continue;
+            }
+
+            if (block.length() > 3000 && looksLikeJavaClass(block)) {
+                chunks.addAll(chunkJavaClassByMethods(block, "CLASSE"));
                 continue;
             }
 
@@ -274,5 +295,176 @@ public class ChunkService {
     String extractClassName(String block) {
         Matcher m = CLASS_NAME_PATTERN.matcher(block);
         return m.find() ? m.group(2) : "CLASSE_DESCONHECIDA";
+    }
+
+    public List<String> chunkJavaClassByMethods(String block, String type) {
+        if (block == null || block.isBlank()) {
+            return List.of();
+        }
+
+        String className = extractClassName(block);
+        String classHeader = extractClassHeader(block);
+        List<String> methodBlocks = extractMethodBlocks(block);
+
+        if (methodBlocks.isEmpty()) {
+            return chunkFallback(block);
+        }
+
+        List<String> chunks = new ArrayList<>();
+        for (String methodCode : methodBlocks) {
+            String methodName = extractMethodName(methodCode);
+            String chunk = """
+                    TIPO: %s
+                    CLASSE: %s
+                    MÉTODO: %s
+
+                    === CONTEXTO DA CLASSE ===
+                    %s
+
+                    === CÓDIGO DO MÉTODO ===
+                    %s
+                    """.formatted(type, className, methodName, classHeader, methodCode.trim());
+            chunks.add(chunk);
+        }
+        return chunks;
+    }
+
+    boolean looksLikeJavaClass(String block) {
+        if (block == null) return false;
+        return CLASS_NAME_PATTERN.matcher(block).find();
+    }
+
+    String extractClassHeader(String block) {
+        Matcher m = CLASS_NAME_PATTERN.matcher(block);
+        if (!m.find()) {
+            return "";
+        }
+        int classIdx = m.start();
+        int openBrace = block.indexOf('{', classIdx);
+        if (openBrace == -1) {
+            return block.substring(0, Math.min(block.length(), 500)).trim();
+        }
+
+        String beforeClass = block.substring(0, openBrace + 1).trim();
+
+        // Tenta incluir campos e dependências antes do primeiro método
+        String inside = block.substring(openBrace + 1);
+        Pattern methodStartPattern = Pattern.compile(
+                "(?m)^\\s*(?:(?:public|protected|private|static|final|synchronized|abstract|default)\\s+)+[\\w<>\\[\\],\\s]+\\s+(\\w+)\\s*\\("
+        );
+        Matcher mm = methodStartPattern.matcher(inside);
+        if (mm.find()) {
+            String fields = inside.substring(0, mm.start()).trim();
+            if (!fields.isBlank() && fields.length() < 1000) {
+                return beforeClass + "\n    " + fields;
+            }
+        }
+
+        return beforeClass;
+    }
+
+    List<String> extractMethodBlocks(String block) {
+        List<String> methods = new ArrayList<>();
+        Matcher m = CLASS_NAME_PATTERN.matcher(block);
+        if (!m.find()) {
+            return methods;
+        }
+        int openBrace = block.indexOf('{', m.start());
+        if (openBrace == -1) {
+            return methods;
+        }
+
+        int depth = 1;
+        boolean inString = false;
+        boolean inChar = false;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
+        int currentMethodStart = -1;
+
+        int len = block.length();
+        for (int i = openBrace + 1; i < len; i++) {
+            char c = block.charAt(i);
+            char next = (i + 1 < len) ? block.charAt(i + 1) : '\0';
+
+            // Comentários
+            if (inLineComment) {
+                if (c == '\n') inLineComment = false;
+                continue;
+            }
+            if (inBlockComment) {
+                if (c == '*' && next == '/') {
+                    inBlockComment = false;
+                    i++;
+                }
+                continue;
+            }
+            if (!inString && !inChar) {
+                if (c == '/' && next == '/') {
+                    inLineComment = true;
+                    i++;
+                    continue;
+                }
+                if (c == '/' && next == '*') {
+                    inBlockComment = true;
+                    i++;
+                    continue;
+                }
+            }
+
+            // Strings e Caracteres Literais
+            if (!inChar && c == '"' && (i == 0 || block.charAt(i - 1) != '\\')) {
+                inString = !inString;
+                continue;
+            }
+            if (!inString && c == '\'' && (i == 0 || block.charAt(i - 1) != '\\')) {
+                inChar = !inChar;
+                continue;
+            }
+            if (inString || inChar) {
+                continue;
+            }
+
+            // Balanço de chaves
+            if (c == '{') {
+                if (depth == 1) {
+                    currentMethodStart = findMethodDeclarationStart(block, openBrace + 1, i);
+                }
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 1 && currentMethodStart != -1) {
+                    String methodText = block.substring(currentMethodStart, i + 1).trim();
+                    if (methodText.length() > 20) {
+                        methods.add(methodText);
+                    }
+                    currentMethodStart = -1;
+                }
+            }
+        }
+
+        return methods;
+    }
+
+    private int findMethodDeclarationStart(String block, int classBodyStart, int braceIndex) {
+        int idx = braceIndex - 1;
+        while (idx >= classBodyStart) {
+            char c = block.charAt(idx);
+            if (c == ';' || c == '}') {
+                return idx + 1;
+            }
+            idx--;
+        }
+        return Math.max(classBodyStart, idx + 1);
+    }
+
+    String extractMethodName(String methodCode) {
+        Pattern pattern = Pattern.compile(
+                "(?:(?:public|protected|private|static|final|synchronized|abstract|default)\\s+)*[\\w<>\\[\\],\\s]+\\s+(\\w+)\\s*\\("
+        );
+        Matcher m = pattern.matcher(methodCode);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return "metodo";
     }
 }

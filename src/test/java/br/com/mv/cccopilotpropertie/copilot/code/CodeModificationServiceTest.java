@@ -196,4 +196,81 @@ class CodeModificationServiceTest {
         assertFalse(result.success());
         assertTrue(result.message().contains("desabilitada"));
     }
+
+    @Test
+    void shouldRejectModificationWithUnbalancedBracesAndPreserveOriginal() throws IOException {
+        Path javaFile = tempDir.resolve("BrokenClass.java");
+        String originalCode = "public class BrokenClass { void test() {} }";
+        Files.writeString(javaFile, originalCode);
+
+        // Tentativa de alterar deixando chave aberta
+        FileModificationResult result = service.modifyFile(
+                tempDir,
+                "tenant-1",
+                "kb-1",
+                "BrokenClass.java",
+                "void test() {}",
+                "void test() {", // Chave aberta!
+                "Bug proposital"
+        );
+
+        assertFalse(result.success());
+        assertEquals("FAILED", result.status());
+        assertTrue(result.message().contains("sintática falhou"));
+        assertTrue(result.message().contains("não foi fechado"));
+
+        // Garante que o arquivo no disco permanece intacto
+        assertEquals(originalCode, Files.readString(javaFile));
+        // Garante que nenhum arquivo de backup sujo foi criado
+        assertFalse(Files.exists(tempDir.resolve("BrokenClass.java.bak")));
+    }
+
+    @Test
+    void shouldRejectWriteFileWithBrokenSyntax() {
+        String invalidCode = "public class Invalid { int a = (1 + 2; }"; // parêntese não fechado
+
+        FileModificationResult result = service.writeFile(
+                tempDir,
+                "tenant-1",
+                "kb-1",
+                "src/main/java/br/com/mv/Invalid.java",
+                invalidCode,
+                "Código inválido"
+        );
+
+        assertFalse(result.success());
+        assertEquals("FAILED", result.status());
+        assertTrue(result.message().contains("sintática falhou"));
+
+        Path target = tempDir.resolve("src/main/java/br/com/mv/Invalid.java");
+        assertFalse(Files.exists(target));
+    }
+
+    @Test
+    void shouldProperlyValidateComplexJavaCodeWithCommentsAndStrings() {
+        String validComplexJava = """
+                package br.com.mv;
+                
+                // Comentário com chaves { } ( ) [ ]
+                /* Comentário de bloco com { [ (
+                   multi-linhas
+                */
+                public class ValidComplex {
+                    private String msg = "Literal com chaves { } ( ) [ ] e \\" aspas";
+                    private String block = \"\"\"
+                            Texto com { [ (
+                            \"\"\";
+                    private char c = '{';
+                    
+                    public void doSomething(int x) {
+                        if (x > 0) {
+                            int[] arr = new int[]{x};
+                        }
+                    }
+                }
+                """;
+
+        String error = service.validateSyntax("ValidComplex.java", validComplexJava);
+        assertNull(error, "Código Java complexo válido não deve gerar erro sintático");
+    }
 }

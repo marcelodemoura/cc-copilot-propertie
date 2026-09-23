@@ -10,8 +10,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class CopilotService {
@@ -53,43 +58,82 @@ public class CopilotService {
         return ask(tenantId, kb, question, null);
     }
 
-    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter askStream(
+    public SseEmitter askStream(
             String tenantId, String kb, String question, String sessionId) {
-        var emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(180_000L);
+        var emitter = new SseEmitter(180_000L);
+        var completed = new AtomicBoolean(false);
 
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
+        emitter.onCompletion(() -> completed.set(true));
+        emitter.onTimeout(() -> {
+            log.warn("Timeout de conexão SSE [tenant={}, kb={}, session={}]", tenantId, kb, sessionId);
+            completed.set(true);
             try {
-                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                        .name("init").data(java.util.Map.of("message", "Conexão com agente iniciada.")));
+                emitter.complete();
+            } catch (Exception ignored) {
+            }
+        });
+        emitter.onError(ex -> {
+            log.debug("Erro/Desconexão SSE [tenant={}, kb={}, session={}]: {}", tenantId, kb, sessionId, ex.getMessage());
+            completed.set(true);
+        });
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                sendSseEvent(emitter, completed, "init", Map.of("message", "Conexão com agente iniciada."));
 
                 CopilotAnswer answer = agentLoop.run(tenantId, kb, question, sessionId, (type, data) -> {
-                    try {
-                        emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                                .name(type).data(data));
-                    } catch (Exception ignored) {
+                    if (completed.get()) {
+                        return;
                     }
+                    sendSseEvent(emitter, completed, type, data);
                 });
 
                 historyService.save(tenantId, kb, sessionId, question, answer);
-                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                        .name("complete").data(answer));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("Erro durante o processamento do chat/stream [tenant={}, kb={}, session={}]: {}", tenantId, kb, sessionId, e.getMessage(), e);
-                try {
-                    String msg = e.getMessage() != null ? e.getMessage() : "Erro inesperado";
-                    if (e instanceof org.springframework.web.client.HttpStatusCodeException se) {
-                        msg = "OpenAI " + se.getStatusCode() + ": " + se.getResponseBodyAsString();
-                    }
-                    emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                            .name("error").data(java.util.Map.of("error", msg)));
-                } catch (Exception ignored) {
+
+                if (!completed.get()) {
+                    sendSseEvent(emitter, completed, "complete", answer);
+                    completeQuietly(emitter, completed);
                 }
-                emitter.complete();
+            } catch (Exception e) {
+                if (!completed.get()) {
+                    log.error("Erro durante o processamento do chat/stream [tenant={}, kb={}, session={}]: {}", tenantId, kb, sessionId, e.getMessage(), e);
+                    try {
+                        String msg = e.getMessage() != null ? e.getMessage() : "Erro inesperado";
+                        if (e instanceof org.springframework.web.client.HttpStatusCodeException se) {
+                            msg = "OpenAI " + se.getStatusCode() + ": " + se.getResponseBodyAsString();
+                        }
+                        sendSseEvent(emitter, completed, "error", Map.of("error", msg));
+                    } catch (Exception ignored) {
+                    }
+                    completeQuietly(emitter, completed);
+                } else {
+                    log.debug("Fluxo SSE interrompido por desconexão/timeout [tenant={}, kb={}, session={}]: {}", tenantId, kb, sessionId, e.getMessage());
+                }
             }
         });
 
         return emitter;
+    }
+
+    private void sendSseEvent(SseEmitter emitter, AtomicBoolean completed, String name, Object data) {
+        if (completed.get()) {
+            return;
+        }
+        try {
+            emitter.send(SseEmitter.event().name(name).data(data));
+        } catch (Exception e) {
+            completed.set(true);
+            log.debug("Falha ao enviar evento SSE '{}' (cliente desconectou?): {}", name, e.getMessage());
+        }
+    }
+
+    private void completeQuietly(SseEmitter emitter, AtomicBoolean completed) {
+        if (completed.compareAndSet(false, true)) {
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public FileModificationResult modifyFile(String tenantId, String kb, String path, String targetContent, String replacementContent, String reason) {

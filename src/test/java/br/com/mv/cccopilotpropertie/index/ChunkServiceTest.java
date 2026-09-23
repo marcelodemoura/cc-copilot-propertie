@@ -162,4 +162,58 @@ class ChunkServiceTest {
         assertTrue(chunkService.chunk("   ").isEmpty());
         assertTrue(chunkService.chunk(null).isEmpty());
     }
+
+    @Test
+    void shouldChunkLargeJavaClassByMethods() {
+        // Simula uma classe de controller grande (> 3000 caracteres) com múltiplos métodos
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                package br.com.mv.controller;
+
+                import org.springframework.web.bind.annotation.*;
+                import java.util.List;
+
+                @RestController
+                @RequestMapping("/api/v1/orders")
+                public class LargeOrderController {
+
+                    private final OrderService orderService;
+
+                    @GetMapping("/{id}")
+                    public OrderDto getOrder(@PathVariable Long id) {
+                        return orderService.find(id);
+                    }
+
+                    @PostMapping
+                    public OrderDto createOrder(@RequestBody CreateOrderRequest req) {
+                        return orderService.create(req);
+                    }
+                """);
+
+        // Adiciona métodos adicionais para exceder 3000 caracteres
+        for (int i = 1; i <= 25; i++) {
+            sb.append("""
+                    @GetMapping("/extra/%d")
+                    public String extraMethod%d() {
+                        String info = "detalhes extras da operacao %d e mais texto longo para teste de preenchimento...";
+                        return info + " resultado";
+                    }
+                    """.formatted(i, i, i));
+        }
+        sb.append("}\n");
+
+        String largeCode = sb.toString();
+        assertTrue(largeCode.length() > 3000, "Código deve exceder 3000 caracteres");
+
+        List<String> chunks = chunkService.chunk(largeCode);
+        assertTrue(chunks.size() >= 10, "Deve gerar chunks por métodos inteiros");
+
+        // Cada chunk deve preservar o contexto da classe e o método inteiro
+        for (String chunk : chunks) {
+            assertTrue(chunk.contains("CLASSE: LargeOrderController"));
+            assertTrue(chunk.contains("TIPO: CONTROLLER / API"));
+            assertTrue(chunk.contains("@RequestMapping(\"/api/v1/orders\")"));
+            assertTrue(chunk.contains("=== CÓDIGO DO MÉTODO ==="));
+        }
+    }
 }

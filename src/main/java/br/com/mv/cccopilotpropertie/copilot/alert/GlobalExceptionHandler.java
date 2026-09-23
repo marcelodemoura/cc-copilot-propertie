@@ -2,11 +2,14 @@ package br.com.mv.cccopilotpropertie.copilot.alert;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import java.util.Map;
 
 @RestControllerAdvice
@@ -14,15 +17,27 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
+        log.warn("Timeout de requisição assíncrona: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(503, "Tempo limite esgotado ao processar a requisição", null));
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
-        return ResponseEntity.status(404).body(buildErrorBody(404, ex.getMessage(), null));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(404, ex.getMessage(), null));
     }
 
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<Map<String, Object>> handleSecurityException(SecurityException ex) {
         log.warn("Violação de segurança detectada: {}", ex.getMessage());
-        return ResponseEntity.status(403).body(buildErrorBody(403, ex.getMessage(), null));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(403, ex.getMessage(), null));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -32,12 +47,16 @@ public class GlobalExceptionHandler {
             errors.put(error.getField(), error.getDefaultMessage() != null ? error.getDefaultMessage() : "Inválido");
         }
         String firstMessage = errors.values().stream().findFirst().orElse("Requisição inválida");
-        return ResponseEntity.badRequest().body(buildErrorBody(400, firstMessage, errors));
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(400, firstMessage, errors));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(buildErrorBody(400, ex.getMessage() != null ? ex.getMessage() : "Requisição inválida", null));
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(400, ex.getMessage() != null ? ex.getMessage() : "Requisição inválida", null));
     }
 
     @ExceptionHandler(HttpClientErrorException.class)
@@ -49,18 +68,24 @@ public class GlobalExceptionHandler {
             case 400 -> "Requisição inválida para a OpenAI: " + ex.getResponseBodyAsString();
             default  -> "Erro na OpenAI (%d): %s".formatted(ex.getStatusCode().value(), ex.getResponseBodyAsString());
         };
-        return ResponseEntity.status(502).body(buildErrorBody(502, detail, null));
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(502, detail, null));
     }
 
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
-        return ResponseEntity.status(404).body(buildErrorBody(404, "Recurso não encontrado: " + ex.getResourcePath(), null));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(404, "Recurso não encontrado: " + ex.getResourcePath(), null));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
         log.error("Erro inesperado", ex);
-        return ResponseEntity.internalServerError().body(buildErrorBody(500, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null));
+        return ResponseEntity.internalServerError()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(500, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null));
     }
 
     private Map<String, Object> buildErrorBody(int status, String error, Object details) {

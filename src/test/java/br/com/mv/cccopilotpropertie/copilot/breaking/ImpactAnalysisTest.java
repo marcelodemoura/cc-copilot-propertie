@@ -52,4 +52,31 @@ class ImpactAnalysisTest {
         assertTrue(impact.internalUsage(), "Deve detectar uso interno através de getter getId()");
         assertFalse(impact.breaksHttpContract(), "Não exposto em endpoint");
     }
+
+    @Test
+    void shouldDetectInternalUsageViaRecordAccessorAndBuilderAndWith() {
+        SearchRepository repository = mock(SearchRepository.class);
+
+        when(repository.findEndpointsUsingDto("tenant-1", "kb-1", "ProductDto")).thenReturn(List.of());
+        when(repository.findUsagesInOtherKnowledgeBases("tenant-1", "kb-1", "ProductDto")).thenReturn(List.of());
+
+        // 1. Record style accessor: product.sku()
+        when(repository.findUsagesByClassName("tenant-1", "kb-1", "sku"))
+                .thenReturn(List.of(new SearchResult("ProductService.java", "String code = product.sku();", 1.0)));
+        ChangeSet changeRecord = new ChangeSet(ChangeTarget.FIELD, ChangeType.REMOVE, "sku", "ProductDto", null, null);
+        ImpactAnalysis impactRecord = ImpactAnalysis.from("tenant-1", "kb-1", changeRecord, repository);
+        assertTrue(impactRecord.internalUsage(), "Deve detectar acesso estilo Java record (.sku())");
+
+        // 2. Lombok @With: product.withSku("123")
+        when(repository.findUsagesByClassName("tenant-1", "kb-1", "sku"))
+                .thenReturn(List.of(new SearchResult("ProductService.java", "return p.withSku(\"123\");", 1.0)));
+        ImpactAnalysis impactWith = ImpactAnalysis.from("tenant-1", "kb-1", changeRecord, repository);
+        assertTrue(impactWith.internalUsage(), "Deve detectar Lombok @With (.withSku())");
+
+        // 3. Builder style: ProductDto.builder().sku("123")
+        when(repository.findUsagesByClassName("tenant-1", "kb-1", "sku"))
+                .thenReturn(List.of(new SearchResult("ProductService.java", "ProductDto.builder().sku(\"123\").build()", 1.0)));
+        ImpactAnalysis impactBuilder = ImpactAnalysis.from("tenant-1", "kb-1", changeRecord, repository);
+        assertTrue(impactBuilder.internalUsage(), "Deve detectar Builder (.sku())");
+    }
 }

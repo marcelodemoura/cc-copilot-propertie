@@ -114,8 +114,24 @@ public class BreakingChangeAnalyzer {
     private boolean isMandatoryState(Object state) {
         if (state == null) return false;
         String s = state.toString().toLowerCase();
-        return s.contains("@notnull") || s.contains("@notblank") || s.contains("@notempty")
-                || s.contains("required") || s.contains("obrigatório") || s.contains("obrigatorio");
+        if (s.contains("@notnull") || s.contains("@notblank") || s.contains("@notempty")
+                || s.contains("required = true") || s.contains("required=true")
+                || s.contains("requiredmode.required")
+                || s.contains("nullable = false") || s.contains("nullable=false")
+                || s.contains("obrigatório") || s.contains("obrigatorio")
+                || s.contains("@min") || s.contains("@positive") || s.contains("@positiveorzero")
+                || s.contains("@decimalmin")) {
+            return true;
+        }
+        // Validação @Size com min > 0
+        if (s.contains("@size") && s.matches("(?s).*min\\s*=\\s*[1-9]\\d*.*")) {
+            return true;
+        }
+        // Tipos primitivos Java não aceitam null
+        if (s.matches("(?s).*\\b(int|long|boolean|double|float|byte|short|char)\\b.*") && !s.contains("default")) {
+            return true;
+        }
+        return s.contains("required");
     }
 
     // =====================================================

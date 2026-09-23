@@ -21,25 +21,24 @@ public class AgentLoop {
             Você é um copiloto técnico especializado em análise, arquitetura, refatoração e correção de projetos de software Java/Kotlin.
             Você tem acesso a ferramentas para buscar código, ler arquivos na íntegra, navegar na árvore de arquivos, analisar DTOs, detectar breaking changes, auditar contratos HTTP e aplicar alterações/criações de código ('modify_file', 'write_file').
             
-            Diretrizes essenciais:
-            - Quando o usuário perguntar o que o projeto faz, sua arquitetura ou funcionamento geral:
+            Diretrizes de Resposta (Objetividade e Clareza):
+            - Seja ESTRITAMENTE CONCISO, DIRETO E OBJETIVO. Vá direto ao ponto sem saudações, introduções (ex: 'Com base na análise...', 'Certamente...') ou conclusões óbvias.
+            - Não seja repetitivo: responda exclusivamente ao que foi perguntado, evitando gerar tópicos ou seções desnecessárias.
+            - Ao sugerir código, forneça apenas os blocos relevantes (diff ou patch pontual), nunca reproduza arquivos inteiros.
+            - Quando o usuário perguntar o que o projeto faz ou sua arquitetura:
               1. Comece lendo o arquivo de build (build.gradle ou pom.xml) ou o README.md com 'read_file'.
               2. Use 'search_code' para buscar a classe principal com @SpringBootApplication e os controllers (@RestController).
-              3. O 'list_files' já retorna a árvore hierárquica compactada com pacotes expandidos — não navegue pasta a pasta repetidamente.
-              4. Após obter os módulos e principais tecnologias, responda de forma estruturada sem gastar iterações extras.
-            - Use as ferramentas disponíveis para coletar informações antes de responder.
-            - Quando encontrar um arquivo relevante via busca, use 'read_file' se precisar de mais contexto ao redor do código.
-            - Nunca invente informações — baseie-se apenas no que as ferramentas retornarem.
-            - Se não encontrar informação suficiente, formule sua resposta com o que encontrou e cite o que não foi possível validar.
-            - Seja direto, técnico e estruture respostas abrangentes em tópicos (ex: Propósito, Tecnologias, Módulos/Arquitetura, Endpoints).
-            - Quando identificar riscos ou breaking changes, seja explícito sobre o impacto.
-            - Se o usuário pedir para você CORRIGIR, REFATORAR ou APLICAR alterações de código no projeto:
-              1. Leia o arquivo com 'read_file' para garantir que o trecho exato seja capturado.
-              2. Execute a ferramenta 'modify_file' com o caminho, 'targetContent' exato, 'replacementContent' corrigido e a justificativa técnica.
-              3. Para criar novos arquivos (como classes de suporte, adaptadores ou testes), use 'write_file'.
-              4. Confirme a alteração realizada e apresente o diff gerado na resposta final.
-            - Se o usuário apenas solicitar uma sugestão sem pedir para aplicar diretamente, forneça o bloco ```diff ... ``` ou ```patch ... ``` com a mudança sugerida.
-            - Se a resposta envolver múltiplos passos, inclua uma seção '### Plano de Ação:' detalhando a sequência recomendada.
+              3. O 'list_files' já retorna a árvore hierárquica compactada — não navegue pasta a pasta repetidamente.
+              4. Resuma sucintamente em poucos pontos: Propósito, Stack e Principais Módulos.
+            - Use as ferramentas disponíveis para coletar informações antes de responder e nunca invente dados.
+            - Se não encontrar informação suficiente, informe objetivamente o que encontrou e o que faltou validar.
+            - Ao identificar riscos ou breaking changes, aponte diretamente o impacto de forma resumida.
+            - Se o usuário pedir para CORRIGIR, REFATORAR ou APLICAR alterações:
+              1. Leia o arquivo com 'read_file' para capturar o trecho exato.
+              2. Execute 'modify_file' com o caminho, 'targetContent' exato, 'replacementContent' e justificativa concisa.
+              3. Para criar novos arquivos, use 'write_file'.
+              4. Confirme a alteração e exiba apenas o diff na resposta final.
+            - Se a resposta exigir múltiplos passos, apresente um '### Plano de Ação:' direto em tópicos curtos.
             """;
 
     private final LlmClient llm;
@@ -102,6 +101,8 @@ public class AgentLoop {
 
         List<CopilotAnswer.Source> sources = new ArrayList<>();
         int consecutiveListFiles = 0;
+        String lastToolCallSignature = null;
+        int consecutiveSameCall = 0;
 
         for (int i = 0; i < MAX_ITERATIONS; i++) {
             if (listener != null) {
@@ -139,6 +140,14 @@ public class AgentLoop {
                     listener.onProgress("tool_start", "Executando ferramenta: " + tc.name());
                 }
 
+                String callSignature = tc.name() + ":" + (tc.argumentsJson() != null ? tc.argumentsJson().trim() : "");
+                if (callSignature.equals(lastToolCallSignature)) {
+                    consecutiveSameCall++;
+                } else {
+                    consecutiveSameCall = 1;
+                    lastToolCallSignature = callSignature;
+                }
+
                 String toolResult = executor.execute(tc.name(), tc.argumentsJson(), tenantId, kb);
 
                 if ("list_files".equals(tc.name())) {
@@ -148,6 +157,15 @@ public class AgentLoop {
                     }
                 } else {
                     consecutiveListFiles = 0;
+                }
+
+                if (consecutiveSameCall >= 2) {
+                    toolResult += "\n[Aviso do Sistema: Chamada repetida detectada com os mesmos parâmetros. Evite repetir esta ação e prossiga formulando sua análise com as informações obtidas.]";
+                }
+
+                // Limita payload excessivo de ferramentas para não estourar a janela de contexto do LLM
+                if (toolResult != null && toolResult.length() > 8000) {
+                    toolResult = toolResult.substring(0, 8000) + "\n... [trecho restante truncado para preservar a janela de contexto do LLM]";
                 }
 
                 // registra fontes para rastreabilidade
@@ -175,7 +193,7 @@ public class AgentLoop {
 
         messages.add(Map.of(
                 "role", "user",
-                "content", "Com base em todos os arquivos, códigos, configurações e estrutura que você analisou nas etapas anteriores, elabore agora sua resposta final completa, técnica e detalhada para o usuário."
+                "content", "Com base nas informações coletadas nas etapas anteriores, elabore sua resposta final de forma direta, concisa e objetiva para o usuário, focando na solução e sem repetições."
         ));
 
         ToolCallResult finalAttempt = llm.chat(messages, List.of());
@@ -205,8 +223,13 @@ public class AgentLoop {
         Collections.reverse(history);
 
         history.forEach(h -> {
-            messages.add(Map.of("role", "user", "content", h.getQuestion()));
-            messages.add(Map.of("role", "assistant", "content", h.getAnswer() != null ? h.getAnswer() : ""));
+            String q = h.getQuestion() != null ? h.getQuestion() : "";
+            String a = h.getAnswer() != null ? h.getAnswer() : "";
+            if (a.length() > 400) {
+                a = a.substring(0, 400) + "\n... [resumo do contexto anterior]";
+            }
+            messages.add(Map.of("role", "user", "content", q));
+            messages.add(Map.of("role", "assistant", "content", a));
         });
     }
 
