@@ -25,11 +25,16 @@ public class CodeModificationService {
     private final IndexService indexService;
 
     private static final Set<String> FORBIDDEN_DIRS = Set.of(
-            ".git", ".gradle", "build", "target", "node_modules", ".idea", ".run", ".github", ".sixth"
+            ".git", ".gradle", "build", "target", "node_modules", ".idea", ".run", ".github", ".sixth",
+            "dist", ".next", ".nuxt", "__pycache__", ".venv", "venv"
     );
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            "java", "kt", "groovy", "properties", "yaml", "yml", "xml", "json", "sql", "md", "txt", "gradle", "html", "css", "js", "ts"
+            "java", "kt", "kts", "groovy", "properties", "yaml", "yml", "xml", "json", "md", "txt",
+            "gradle", "html", "css", "scss", "less", "js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte",
+            "py", "go", "rs", "cs", "php", "rb", "swift", "dart", "c", "cpp", "h", "hpp",
+            "sql", "pks", "pkb", "pls", "plb", "prc", "fnc", "trg", "vw", "tps", "tpb", "ddl", "dml", "hql", "cql",
+            "toml", "graphql", "prisma", "tf", "sh", "bat", "conf", "ini", "dockerfile"
     );
 
     public CodeModificationService() {

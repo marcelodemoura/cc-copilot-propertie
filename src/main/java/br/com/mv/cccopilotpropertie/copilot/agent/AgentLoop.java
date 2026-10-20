@@ -18,27 +18,27 @@ public class AgentLoop {
     private static final int MAX_ITERATIONS = 12;
 
     private static final String SYSTEM_PROMPT = """
-            Você é um copiloto técnico especializado em análise, arquitetura, refatoração e correção de projetos de software Java/Kotlin.
-            Você tem acesso a ferramentas para buscar código, ler arquivos na íntegra, navegar na árvore de arquivos, analisar DTOs, detectar breaking changes, auditar contratos HTTP e aplicar alterações/criações de código ('modify_file', 'write_file').
-            
-            Diretrizes de Resposta (Objetividade e Clareza):
-            - Seja ESTRITAMENTE CONCISO, DIRETO E OBJETIVO. Vá direto ao ponto sem saudações, introduções (ex: 'Com base na análise...', 'Certamente...') ou conclusões óbvias.
-            - Não seja repetitivo: responda exclusivamente ao que foi perguntado, evitando gerar tópicos ou seções desnecessárias.
-            - Ao sugerir código, forneça apenas os blocos relevantes (diff ou patch pontual), nunca reproduza arquivos inteiros.
-            - Quando o usuário perguntar o que o projeto faz ou sua arquitetura:
-              1. Comece lendo o arquivo de build (build.gradle ou pom.xml) ou o README.md com 'read_file'.
-              2. Use 'search_code' para buscar a classe principal com @SpringBootApplication e os controllers (@RestController).
-              3. O 'list_files' já retorna a árvore hierárquica compactada — não navegue pasta a pasta repetidamente.
-              4. Resuma sucintamente em poucos pontos: Propósito, Stack e Principais Módulos.
-            - Use as ferramentas disponíveis para coletar informações antes de responder e nunca invente dados.
-            - Se não encontrar informação suficiente, informe objetivamente o que encontrou e o que faltou validar.
-            - Ao identificar riscos ou breaking changes, aponte diretamente o impacto de forma resumida.
-            - Se o usuário pedir para CORRIGIR, REFATORAR ou APLICAR alterações:
-              1. Leia o arquivo com 'read_file' para capturar o trecho exato.
-              2. Execute 'modify_file' com o caminho, 'targetContent' exato, 'replacementContent' e justificativa concisa.
-              3. Para criar novos arquivos, use 'write_file'.
-              4. Confirme a alteração e exiba apenas o diff na resposta final.
-            - Se a resposta exigir múltiplos passos, apresente um '### Plano de Ação:' direto em tópicos curtos.
+            Você é um engenheiro de software e copiloto autônomo poliglota (Java, Kotlin, TypeScript/JavaScript, Node.js, React, Angular, Vue, Python, Go, C#, Docker/Infra) e especialista em bancos de dados (Oracle SQL/PL-SQL, PostgreSQL, SQL Server/T-SQL, MySQL, MongoDB, Redis), capaz de trabalhar em múltiplos projetos simultaneamente.
+            Você possui ferramentas para listar projetos ('list_projects'), inspecionar alterações Git ('git_changes'), buscar código ('search_code'), ler/listar arquivos ('read_file', 'list_files'), auditar contratos/DTOs/schemas e editar/criar arquivos ('modify_file', 'write_file') tanto no projeto ativo quanto em outros projetos do workspace (usando o parâmetro opcional 'project').
+
+            POSTURA PROATIVA E AUTÔNOMA (REGRA #1 - CRÍTICA):
+            - AGIR PRIMEIRO, NUNCA ENROLAR COM PERGUNTAS: É ESTRITAMENTE PROIBIDO responder devolvendo menus de opções ("Você quer 1 ou 2?", "Responda A, B ou C", "Qual o valor de N/K?", "Quer usar Git ou timestamps?") antes de chamar ferramentas.
+            - Na iteração 1, se o usuário pedir para verificar, analisar, comparar ou alterar qualquer coisa em um ou mais projetos, CHAME AS FERRAMENTAS IMEDIATAMENTE assumindo o padrão mais inteligente.
+            - Quando o usuário perguntar "quais classes/arquivos foram alterados" ou "o que mudou em X e Y", execute IMEDIATAMENTE a ferramenta 'git_changes' para cada projeto mencionado (ex: `git_changes(project="command-center-ws")` e `git_changes(project="command-center-view")`) e liste diretamente os arquivos modificados.
+
+            REGRAS ESTRITAS DE FORMATAÇÃO E BREVIDADE:
+            - RESPOSTAS CURTAS E CIRÚRGICAS: Responda em no máximo 1 a 3 parágrafos curtos ou bullet points diretos, salvo se o usuário pedir explicitamente um detalhamento longo.
+            - PROIBIDO: Saudações, introduções ("Com base na análise...", "Analisei os arquivos..."), explicações óbvias do que o código faz linha a linha, resumos repetitivos no final ("Em resumo...", "Dessa forma...") ou seções como "Recomendações Adicionais" / "Próximos Passos" que não foram pedidas.
+            - Se a pergunta for objetiva (ex: "onde fica X?", "qual o impacto de Y?", "gere uma query para Z"), responda direto com o fato ou com o bloco SQL/código enxuto.
+            - Ao editar ou criar arquivos ('modify_file', 'write_file'), confirme em 1 frase quais arquivos foram alterados e mostre APENAS o bloco ```diff essencial. Não explique o código alterado a menos que seja complexo.
+            - Ao sugerir código/queries sem aplicar, mostre apenas o snippet/diff relevante — nunca o arquivo inteiro.
+            - Banco de Dados e Queries:
+              * Identifique as tabelas/colunas reais lendo as entidades (@Entity/@Table, migrations Flyway/Liquibase, schemas Prisma/SQL ou packages PL/SQL) antes de escrever queries, evitando inventar nomes de colunas.
+              * Respeite estritamente o dialeto do banco usado no projeto (ex: Oracle PL/SQL com sequences/packages/triggers .pks/.pkb/.prc/.trg, PostgreSQL, SQL Server, etc.).
+            - Trabalho Entre Projetos e Stacks (Cross-Project):
+              * Se a tarefa envolver múltiplos projetos (ex: Backend + Frontend + Scripts de Banco), passe o nome da pasta ou ID no parâmetro 'project' de 'git_changes', 'search_code', 'read_file', 'list_files', 'modify_file' ou 'write_file' (funciona mesmo para pastas no workspace que ainda não estejam indexadas no banco).
+              * Você pode ler um contrato/entidade/package em um projeto A e criar/atualizar a classe, query ou componente correspondente no projeto B na mesma execução.
+            - Quando perguntado sobre a arquitetura de um projeto: leia o manifesto da stack (package.json, build.gradle, pom.xml, requirements.txt, pyproject.toml, go.mod, etc.) ou README.md, identifique os entrypoints/rotas/componentes principais e resuma em no máximo 3 tópicos curtos (Propósito, Stack, Módulos).
             """;
 
     private final LlmClient llm;
@@ -73,23 +73,7 @@ public class AgentLoop {
             listener.onProgress("status", "Analisando pergunta e contexto recente...");
         }
 
-        String effectiveSystemPrompt = SYSTEM_PROMPT;
-        if (projectRepo != null && kb != null && !kb.isBlank()) {
-            try {
-                UUID id = UUID.fromString(kb);
-                var pOpt = projectRepo.findById(id);
-                if (pOpt.isPresent()) {
-                    var p = pOpt.get();
-                    effectiveSystemPrompt += """
-
-                            Informações do Projeto Ativo:
-                            - Nome do Projeto: %s
-                            - Caminho Raiz no Sistema: %s
-                            """.formatted(p.getName(), p.getRootPath());
-                }
-            } catch (Exception ignored) {
-            }
-        }
+        String effectiveSystemPrompt = buildSystemPrompt(tenantId, kb);
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", effectiveSystemPrompt));
@@ -193,7 +177,7 @@ public class AgentLoop {
 
         messages.add(Map.of(
                 "role", "user",
-                "content", "Com base nas informações coletadas nas etapas anteriores, elabore sua resposta final de forma direta, concisa e objetiva para o usuário, focando na solução e sem repetições."
+                "content", "Responda diretamente à pergunta do usuário em no máximo 3 parágrafos curtos ou bullet points objetivos, sem introduções ou conclusões genéricas."
         ));
 
         ToolCallResult finalAttempt = llm.chat(messages, List.of());
@@ -212,6 +196,43 @@ public class AgentLoop {
                 "Não foi possível concluir a análise dentro do limite de iterações.",
                 sources, 0.5, null, null, null, null
         );
+    }
+
+    private String buildSystemPrompt(String tenantId, String kb) {
+        StringBuilder sb = new StringBuilder(SYSTEM_PROMPT);
+        if (projectRepo == null) {
+            return sb.toString();
+        }
+        try {
+            if (kb != null && !kb.isBlank()) {
+                try {
+                    UUID id = UUID.fromString(kb);
+                    var pOpt = projectRepo.findById(id);
+                    if (pOpt.isPresent()) {
+                        var p = pOpt.get();
+                        sb.append("\nProjeto Ativo (padrão quando 'project' não é informado):\n")
+                                .append("- Nome: ").append(p.getName())
+                                .append(" | ID: ").append(p.getId())
+                                .append(" | Raiz: ").append(p.getRootPath()).append("\n");
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
+            var allProjects = (tenantId != null && !tenantId.isBlank())
+                    ? projectRepo.findByTenantId(tenantId)
+                    : projectRepo.findAll();
+            if (allProjects != null && !allProjects.isEmpty()) {
+                sb.append("\nProjetos Disponíveis no Workspace (você pode ler, buscar e modificar qualquer um passando o nome ou ID no parâmetro 'project'):\n");
+                for (var proj : allProjects) {
+                    sb.append("- ").append(proj.getName())
+                            .append(" (ID: ").append(proj.getId())
+                            .append(", Path: ").append(proj.getRootPath()).append(")\n");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return sb.toString();
     }
 
     private void loadHistory(String tenantId, String kb, String sessionId, List<Map<String, Object>> messages) {

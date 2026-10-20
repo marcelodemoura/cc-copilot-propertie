@@ -14,13 +14,15 @@ class AgentToolsTest {
         AgentTools tools = new AgentTools();
         List<Map<String, Object>> all = tools.all();
 
-        assertEquals(11, all.size());
+        assertEquals(13, all.size());
 
         List<String> names = all.stream()
                 .map(m -> (Map<String, Object>) m.get("function"))
                 .map(f -> (String) f.get("name"))
                 .toList();
 
+        assertTrue(names.contains("list_projects"));
+        assertTrue(names.contains("git_changes"));
         assertTrue(names.contains("search_code"));
         assertTrue(names.contains("find_dto_definition"));
         assertTrue(names.contains("find_dto_usages"));

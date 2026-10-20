@@ -229,8 +229,41 @@ public class ProjectFileSystemService {
         if (Files.exists(dir.resolve("pom.xml"))) {
             return "Maven";
         }
+        if (Files.exists(dir.resolve("angular.json"))) {
+            return "Angular";
+        }
+        if (Files.exists(dir.resolve("next.config.js")) || Files.exists(dir.resolve("next.config.mjs")) || Files.exists(dir.resolve("next.config.ts"))) {
+            return "Next.js";
+        }
         if (Files.exists(dir.resolve("package.json"))) {
-            return "Node";
+            return "Node/TS";
+        }
+        if (Files.exists(dir.resolve("pyproject.toml")) || Files.exists(dir.resolve("requirements.txt")) || Files.exists(dir.resolve("Pipfile")) || Files.exists(dir.resolve("manage.py"))) {
+            return "Python";
+        }
+        if (Files.exists(dir.resolve("go.mod"))) {
+            return "Go";
+        }
+        if (Files.exists(dir.resolve("Cargo.toml"))) {
+            return "Rust";
+        }
+        if (Files.exists(dir.resolve("pubspec.yaml"))) {
+            return "Flutter/Dart";
+        }
+        if (Files.exists(dir.resolve("composer.json"))) {
+            return "PHP";
+        }
+        if (Files.exists(dir.resolve("Gemfile"))) {
+            return "Ruby";
+        }
+        try (var stream = Files.list(dir)) {
+            if (stream.anyMatch(p -> {
+                String n = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                return n.endsWith(".sln") || n.endsWith(".csproj");
+            })) {
+                return ".NET/C#";
+            }
+        } catch (Exception ignored) {
         }
         if (Files.exists(dir.resolve(".git"))) {
             return "Git";

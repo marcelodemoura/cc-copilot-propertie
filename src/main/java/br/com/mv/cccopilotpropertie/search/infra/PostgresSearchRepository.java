@@ -137,7 +137,8 @@ public class PostgresSearchRepository implements SearchRepository {
                         FROM code_embeddings
                         WHERE tenant_id = ?
                           AND knowledge_base = ?
-                          AND path ILIKE ?
+                          AND (path ILIKE ? OR path ILIKE ? OR content ILIKE ?)
+                        ORDER BY CASE WHEN path ILIKE ? THEN 0 WHEN path ILIKE ? THEN 1 ELSE 2 END
                         LIMIT 1
                         """,
                 rs -> rs.next()
@@ -149,7 +150,11 @@ public class PostgresSearchRepository implements SearchRepository {
                         : Optional.empty(),
                 tenantId,
                 knowledgeBase,
-                "%/" + className + ".java"
+                "%/" + className + ".java",
+                "%/" + className + ".%",
+                "%interface " + className + "%",
+                "%/" + className + ".java",
+                "%/" + className + ".%"
         );
     }
 
@@ -185,12 +190,18 @@ public class PostgresSearchRepository implements SearchRepository {
         return jdbc.query("""
                         SELECT path, content, 1.0 AS score
                         FROM code_embeddings
-                        WHERE tenant_id = ? AND path ILIKE ?
+                        WHERE tenant_id = ? AND (path ILIKE ? OR path ILIKE ? OR content ILIKE ?)
+                        ORDER BY CASE WHEN path ILIKE ? THEN 0 WHEN path ILIKE ? THEN 1 ELSE 2 END
                         LIMIT 1
                         """,
                 rs -> rs.next() ? Optional.of(new SearchResult(
                         rs.getString("path"), rs.getString("content"), 1.0)) : Optional.empty(),
-                tenantId, "%/" + dtoName + ".java");
+                tenantId,
+                "%/" + dtoName + ".java",
+                "%/" + dtoName + ".%",
+                "%interface " + dtoName + "%",
+                "%/" + dtoName + ".java",
+                "%/" + dtoName + ".%");
     }
 
     @Override
@@ -222,6 +233,12 @@ public class PostgresSearchRepository implements SearchRepository {
                           AND (
                                 content ILIKE '%@RestController%'
                              OR content ILIKE '%@Controller%'
+                             OR content ILIKE '%@ApiController%'
+                             OR content ILIKE '%@app.%'
+                             OR content ILIKE '%@router.%'
+                             OR content ILIKE '%router.%'
+                             OR path ILIKE '%controller%'
+                             OR path ILIKE '%route%'
                           )
                           AND content ILIKE ?
                         """,

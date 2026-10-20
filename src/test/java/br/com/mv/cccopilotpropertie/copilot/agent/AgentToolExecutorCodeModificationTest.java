@@ -84,4 +84,40 @@ class AgentToolExecutorCodeModificationTest {
         assertTrue(Files.exists(created));
         assertEquals("public class NovaEntidade {}", Files.readString(created));
     }
+
+    @Test
+    void shouldReadAndModifyAcrossProjects() throws IOException {
+        Path projectA = tempDir.resolve("projeto-a");
+        Path projectB = tempDir.resolve("projeto-b");
+        Files.createDirectories(projectA);
+        Files.createDirectories(projectB);
+
+        Files.writeString(projectA.resolve("ContratoDTO.java"), "public record ContratoDTO(String codigo) {}");
+        Files.writeString(projectB.resolve("ClienteDTO.java"), "public record ClienteDTO(Long id) {}");
+
+        String readArgs = """
+                {
+                    "path": "ContratoDTO.java",
+                    "project": "projeto-a"
+                }
+                """;
+        String readResult = executor.execute("read_file", readArgs, "tenant-1", "projeto-b");
+        assertTrue(readResult.contains("public record ContratoDTO(String codigo) {}"));
+
+        String modifyArgs = """
+                {
+                    "path": "ClienteDTO.java",
+                    "targetContent": "Long id",
+                    "replacementContent": "String codigo",
+                    "reason": "Sincronizando contrato com projeto-a",
+                    "project": "projeto-b"
+                }
+                """;
+        String modResult = executor.execute("modify_file", modifyArgs, "tenant-1", "projeto-a");
+        assertTrue(modResult.contains("MODIFICAÇÃO DE CÓDIGO EXECUTADA COM SUCESSO"));
+        assertEquals("public record ClienteDTO(String codigo) {}", Files.readString(projectB.resolve("ClienteDTO.java")));
+
+        String gitResult = executor.execute("git_changes", "{\"project\": \"projeto-b\"}", "tenant-1", "projeto-a");
+        assertTrue(gitResult.contains("ClienteDTO.java"));
+    }
 }

@@ -11,6 +11,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -18,8 +20,15 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(AsyncRequestTimeoutException.class)
-    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
+    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex,
+                                                                    HttpServletRequest request,
+                                                                    HttpServletResponse response) {
         log.warn("Timeout de requisição assíncrona: {}", ex.getMessage());
+        // Se a resposta já foi commitada (ex: SSE) ou o cliente aceita event-stream, evite escrever o corpo
+        if (response.isCommitted() || isSseRequest(request, response)) {
+            log.debug("Resposta já commitada ou SSE detectado; apenas retornando status sem corpo");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(buildErrorBody(503, "Tempo limite esgotado ao processar a requisição", null));
@@ -81,8 +90,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex,
+                                                                 HttpServletRequest request,
+                                                                 HttpServletResponse response) {
         log.error("Erro inesperado", ex);
+        if (response.isCommitted() || isSseRequest(request, response)) {
+            log.debug("Resposta já commitada ou SSE detectado; não escrever corpo de erro genérico");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
         return ResponseEntity.internalServerError()
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(buildErrorBody(500, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null));
@@ -97,5 +112,13 @@ public class GlobalExceptionHandler {
         }
         body.put("timestamp", java.time.OffsetDateTime.now().toString());
         return body;
+    }
+
+    private boolean isSseRequest(HttpServletRequest request, HttpServletResponse response) {
+        String accept = request.getHeader("Accept");
+        if (accept != null && accept.contains("text/event-stream")) return true;
+        String ct = response.getContentType();
+        if (ct != null && ct.contains("text/event-stream")) return true;
+        return false;
     }
 }
