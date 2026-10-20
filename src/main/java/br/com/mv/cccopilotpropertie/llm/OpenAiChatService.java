@@ -23,10 +23,10 @@ public class OpenAiChatService implements LlmClient {
     @Autowired
     public OpenAiChatService(
             @Value("${llm.openai.api-key}") String apiKey,
-            @Value("${llm.openai.model:gpt-4.1-mini}") String model,
+            @Value("${llm.openai.model:gpt-4o-mini}") String model,
             @Value("${llm.openai.temperature:}") String temperature
     ) {
-        this(apiKey, model, parseTemperature(temperature), new RestTemplate());
+        this(apiKey, model, parseTemperature(temperature), createDefaultRestTemplate());
     }
 
     public OpenAiChatService(String apiKey, String model, Double temperature, RestTemplate rest) {
@@ -34,6 +34,13 @@ public class OpenAiChatService implements LlmClient {
         this.model = model;
         this.temperature = temperature;
         this.rest = rest;
+    }
+
+    private static RestTemplate createDefaultRestTemplate() {
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(java.time.Duration.ofSeconds(15));
+        factory.setReadTimeout(java.time.Duration.ofSeconds(90));
+        return new RestTemplate(factory);
     }
 
     private static Double parseTemperature(String tempStr) {
@@ -66,11 +73,46 @@ public class OpenAiChatService implements LlmClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
 
-        ResponseEntity<Map> response = rest.postForEntity(
-                "https://api.openai.com/v1/chat/completions",
-                new HttpEntity<>(body, headers),
-                Map.class
-        );
+        int maxRetries = 3;
+        long waitMs = 500;
+        ResponseEntity<Map> response = null;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                response = rest.postForEntity(
+                        "https://api.openai.com/v1/chat/completions",
+                        new HttpEntity<>(body, headers),
+                        Map.class
+                );
+                break;
+            } catch (org.springframework.web.client.HttpStatusCodeException e) {
+                int status = e.getStatusCode().value();
+                boolean isRetryable = (status == 429 || status >= 500);
+                if (attempt < maxRetries && isRetryable) {
+                    try {
+                        Thread.sleep(waitMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                    waitMs *= 2;
+                    continue;
+                }
+                throw e;
+            } catch (org.springframework.web.client.ResourceAccessException e) {
+                if (attempt < maxRetries) {
+                    try {
+                        Thread.sleep(waitMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                    waitMs *= 2;
+                    continue;
+                }
+                throw e;
+            }
+        }
 
         var choices = (List<Map<String, Object>>) response.getBody().get("choices");
         var message = (Map<String, Object>) choices.get(0).get("message");

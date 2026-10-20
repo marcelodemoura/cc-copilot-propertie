@@ -54,4 +54,53 @@ class CopilotServiceTest {
 
         org.junit.jupiter.api.Assertions.assertNotNull(emitter);
     }
+
+    @Test
+    void should_stream_events_and_complete_successfully() throws Exception {
+        String tenantId = "tenant-1";
+        String kb = "kb-1";
+        String question = "Como funciona o streaming?";
+        String sessionId = "sess-1";
+        CopilotAnswer answer = new CopilotAnswer("stream ok", List.of(), 1.0, null, null, null, null);
+
+        org.mockito.Mockito.when(agentLoop.run(org.mockito.ArgumentMatchers.eq(tenantId),
+                        org.mockito.ArgumentMatchers.eq(kb),
+                        org.mockito.ArgumentMatchers.eq(question),
+                        org.mockito.ArgumentMatchers.eq(sessionId),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(inv -> {
+                    br.com.mv.cccopilotpropertie.copilot.agent.AgentProgressListener cb = inv.getArgument(4);
+                    if (cb != null) {
+                        cb.onProgress("token", "olá");
+                    }
+                    return answer;
+                });
+
+        var emitter = copilotService.askStream(tenantId, kb, question, sessionId);
+        org.junit.jupiter.api.Assertions.assertNotNull(emitter);
+
+        Thread.sleep(200);
+        verify(historyService).save(tenantId, kb, sessionId, question, answer);
+    }
+
+    @Test
+    void should_handle_error_in_stream_without_throwing() throws Exception {
+        String tenantId = "tenant-1";
+        String kb = "kb-1";
+        String question = "Pergunta com erro";
+        String sessionId = "sess-err";
+
+        org.mockito.Mockito.when(agentLoop.run(org.mockito.ArgumentMatchers.eq(tenantId),
+                        org.mockito.ArgumentMatchers.eq(kb),
+                        org.mockito.ArgumentMatchers.eq(question),
+                        org.mockito.ArgumentMatchers.eq(sessionId),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("Simulated LLM failure"));
+
+        var emitter = copilotService.askStream(tenantId, kb, question, sessionId);
+        org.junit.jupiter.api.Assertions.assertNotNull(emitter);
+
+        Thread.sleep(200);
+        // Não deve propagar exceção para fora
+    }
 }

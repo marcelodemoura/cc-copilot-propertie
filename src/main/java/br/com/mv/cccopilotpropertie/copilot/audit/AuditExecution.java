@@ -1,10 +1,15 @@
 package br.com.mv.cccopilotpropertie.copilot.audit;
 
 import jakarta.persistence.*;
+import lombok.Getter;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "copilot_audit_execution")
+@Table(name = "copilot_audit_execution", indexes = {
+        @Index(name = "idx_audit_tenant_kb", columnList = "tenantId, knowledgeBase"),
+        @Index(name = "idx_audit_dto", columnList = "tenantId, dtoName")
+})
+@Getter
 public class AuditExecution {
 
     @Id
@@ -39,6 +44,20 @@ public class AuditExecution {
             int usageCount,
             String alertLevel
     ) {
+        this(tenantId, knowledgeBase, dtoName, riskLevel, contractDto, explicitValidation, usageCount, alertLevel, "USAGE");
+    }
+
+    public AuditExecution(
+            String tenantId,
+            String knowledgeBase,
+            String dtoName,
+            String riskLevel,
+            boolean contractDto,
+            boolean explicitValidation,
+            int usageCount,
+            String alertLevel,
+            String auditType
+    ) {
         this.tenantId = tenantId;
         this.knowledgeBase = knowledgeBase;
         this.dtoName = dtoName;
@@ -47,6 +66,7 @@ public class AuditExecution {
         this.explicitValidation = explicitValidation;
         this.usageCount = usageCount;
         this.alertLevel = alertLevel;
+        this.auditType = auditType;
         this.executedAt = OffsetDateTime.now();
     }
 

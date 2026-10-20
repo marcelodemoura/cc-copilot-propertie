@@ -15,10 +15,19 @@ public class SearchService {
     private final SearchRepository repo;
     private final ReRanker reranker;
 
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     public SearchService(EmbeddingService e, SearchRepository r, ReRanker rr) {
-        embedder = e;
-        repo = r;
-        reranker = rr;
+        this(e, r, rr, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SearchService(EmbeddingService e, SearchRepository r, ReRanker rr,
+                         @org.springframework.beans.factory.annotation.Autowired(required = false) io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this.embedder = e;
+        this.repo = r;
+        this.reranker = rr;
+        this.meterRegistry = meterRegistry;
     }
 
     private static final Set<String> STOP_WORDS = Set.of(
@@ -30,21 +39,42 @@ public class SearchService {
     private static final Pattern WORD_SPLIT = Pattern.compile("[^a-zA-Z0-9_]+");
 
     public List<SearchResult> search(String tenant, String kb, String question, int limit) {
-        float[] q = embedder.embed(question);
+        return search(tenant, kb, question, limit, 0);
+    }
 
-        var vectorResults = repo.search(tenant, kb, q, limit * 2);
+    public List<SearchResult> search(String tenant, String kb, String question, int limit, int offset) {
+        String effectiveTenant = tenant != null ? tenant : "default";
+
+        long startEmbed = System.nanoTime();
+        float[] q = embedder.embed(question);
+        long embedTimeMs = (System.nanoTime() - startEmbed) / 1_000_000;
+
+        if (meterRegistry != null) {
+            meterRegistry.timer("rag.embedding.time", "tenant", effectiveTenant)
+                    .record(embedTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+
+        long startSearch = System.nanoTime();
+
+        var vectorResults = offset > 0
+                ? repo.search(tenant, kb, q, limit * 2, offset)
+                : repo.search(tenant, kb, q, limit * 2);
 
         // Busca simbólica por palavras-chave relevantes
         List<SearchResult> keywordResults = new ArrayList<>();
         if (question != null && !question.isBlank()) {
             String cleanQ = question.trim();
             if (cleanQ.length() >= 3 && !cleanQ.contains(" ")) {
-                keywordResults.addAll(repo.searchKeyword(tenant, kb, cleanQ, limit));
+                keywordResults.addAll(offset > 0
+                        ? repo.searchKeyword(tenant, kb, cleanQ, limit, offset)
+                        : repo.searchKeyword(tenant, kb, cleanQ, limit));
             } else {
                 for (String word : WORD_SPLIT.split(question)) {
                     String lower = word.toLowerCase(Locale.ROOT);
                     if (word.length() >= 4 && !STOP_WORDS.contains(lower)) {
-                        keywordResults.addAll(repo.searchKeyword(tenant, kb, word, 4));
+                        keywordResults.addAll(offset > 0
+                                ? repo.searchKeyword(tenant, kb, word, 4, offset)
+                                : repo.searchKeyword(tenant, kb, word, 4));
                     }
                 }
             }
@@ -59,8 +89,22 @@ public class SearchService {
             merged.putIfAbsent(vr.path() + ":" + vr.content().hashCode(), vr);
         }
 
+        long searchTimeMs = (System.nanoTime() - startSearch) / 1_000_000;
+
+        if (meterRegistry != null) {
+            meterRegistry.timer("rag.search.time", "tenant", effectiveTenant)
+                    .record(searchTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            meterRegistry.counter("rag.queries.total", "tenant", effectiveTenant).increment();
+        }
+
         List<SearchResult> combined = new ArrayList<>(merged.values());
-        return reranker.rerank(question, combined, limit);
+        List<SearchResult> finalResults = reranker.rerank(question, combined, limit);
+
+        if (meterRegistry != null) {
+            meterRegistry.summary("rag.results.count", "tenant", effectiveTenant).record(finalResults.size());
+        }
+
+        return finalResults;
     }
 }
 

@@ -34,9 +34,22 @@ public class ProjectController {
     }
 
     @GetMapping
-    @Operation(summary = "Lista todos os projetos")
-    public List<ProjectEntity> list() {
-        return projects.list();
+    @Operation(summary = "Lista projetos cadastrados", description = "Lista projetos, opcionalmente filtrados pelo tenantId.")
+    public List<ProjectEntity> list(@RequestParam(required = false) String tenantId) {
+        return projects.list(tenantId);
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Obtém detalhes do projeto por ID")
+    public ProjectEntity get(@PathVariable UUID id, @RequestParam(required = false) String tenantId) {
+        return projects.get(id, tenantId);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    @Operation(summary = "Exclui um projeto", description = "Remove o projeto, apaga seus embeddings do banco e limpa arquivos físicos se gerados por upload.")
+    public void delete(@PathVariable UUID id) {
+        projects.delete(id);
     }
 
     @PostMapping
@@ -127,5 +140,13 @@ public class ProjectController {
             @PathVariable UUID id, @Valid @RequestBody ProjectAskRequest request) {
         ProjectEntity project = projects.get(id);
         return copilot.askStream(project.getTenantId(), id.toString(), request.question(), request.sessionId());
+    }
+
+    @PostMapping("/{id}/modify-file")
+    @Operation(summary = "Aplica modificação em arquivo do projeto", description = "Aplica correção ou refatoração no arquivo dentro do projeto cadastrado.")
+    public br.com.mv.cccopilotpropertie.copilot.code.FileModificationResult modifyFile(
+            @PathVariable UUID id, @Valid @RequestBody ProjectModifyFileRequest request) {
+        ProjectEntity project = projects.get(id);
+        return copilot.modifyFile(project.getTenantId(), id.toString(), request.path(), request.targetContent(), request.replacementContent(), request.reason());
     }
 }

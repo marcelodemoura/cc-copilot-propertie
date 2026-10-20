@@ -26,11 +26,21 @@ public class ProjectFileSystemService {
             ".sixth", "node_modules", "logs", "log", "out", "dist"
     );
 
+    private static final long MAX_ZIP_SIZE = 50 * 1024 * 1024; // 50 MB
+    private static final long MAX_UNCOMPRESSED_SIZE = 250 * 1024 * 1024; // 250 MB
+    private static final int MAX_FILES = 10_000;
+    private static final long MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+
     public ProjectFileSystemService(
-            @Value("${indexer.base-path}") String basePathStr,
+            @Value("${indexer.base-path:.}") String basePathStr,
             ProjectRepository projectRepository
     ) {
-        this.basePath = Path.of(basePathStr).toAbsolutePath().normalize();
+        Path p = Path.of(basePathStr != null ? basePathStr : ".").toAbsolutePath().normalize();
+        try {
+            this.basePath = Files.exists(p) ? p.toRealPath() : p;
+        } catch (IOException e) {
+            throw new IllegalStateException("Erro ao resolver base path: " + basePathStr, e);
+        }
         this.projectRepository = projectRepository;
     }
 
@@ -39,8 +49,14 @@ public class ProjectFileSystemService {
         if (requestedPath == null || requestedPath.isBlank()) {
             current = basePath;
         } else {
-            current = Path.of(requestedPath).toAbsolutePath().normalize();
-            if (!current.startsWith(basePath) || !Files.exists(current) || !Files.isDirectory(current)) {
+            Path target = Path.of(requestedPath).toAbsolutePath().normalize();
+            try {
+                if (Files.exists(target) && Files.isDirectory(target) && target.toRealPath().startsWith(basePath)) {
+                    current = target.toRealPath();
+                } else {
+                    current = basePath;
+                }
+            } catch (Exception e) {
                 current = basePath;
             }
         }
@@ -104,6 +120,10 @@ public class ProjectFileSystemService {
             throw new IllegalArgumentException("Arquivo ZIP é obrigatório.");
         }
 
+        if (file.getSize() > MAX_ZIP_SIZE) {
+            throw new IllegalArgumentException("O arquivo ZIP excede o limite máximo permitido de 50MB.");
+        }
+
         String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "project.zip";
         if (!originalName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
             throw new IllegalArgumentException("O arquivo enviado deve ser do tipo .zip");
@@ -123,21 +143,49 @@ public class ProjectFileSystemService {
         }
         Files.createDirectories(targetDir);
 
+        long totalUncompressedBytes = 0;
+        int totalEntries = 0;
+        byte[] buffer = new byte[8192];
+
         try (ZipInputStream zis = new ZipInputStream(file.getInputStream())) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
+                totalEntries++;
+                if (totalEntries > MAX_FILES) {
+                    throw new SecurityException("Arquivo ZIP excede a quantidade máxima de " + MAX_FILES + " arquivos (possível Zip Bomb).");
+                }
+
                 Path dest = targetDir.resolve(entry.getName()).normalize();
                 if (!dest.startsWith(targetDir)) {
-                    throw new SecurityException("Entrada inválida no arquivo ZIP: " + entry.getName());
+                    throw new SecurityException("Entrada inválida no arquivo ZIP (Zip Slip): " + entry.getName());
                 }
+
                 if (entry.isDirectory()) {
                     Files.createDirectories(dest);
                 } else {
                     Files.createDirectories(dest.getParent());
-                    Files.copy(zis, dest, StandardCopyOption.REPLACE_EXISTING);
+                    long entryBytes = 0;
+                    try (var out = Files.newOutputStream(dest, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                        int read;
+                        while ((read = zis.read(buffer)) != -1) {
+                            entryBytes += read;
+                            totalUncompressedBytes += read;
+
+                            if (entryBytes > MAX_FILE_SIZE) {
+                                throw new SecurityException("Arquivo individual no ZIP excede 25MB: " + entry.getName());
+                            }
+                            if (totalUncompressedBytes > MAX_UNCOMPRESSED_SIZE) {
+                                throw new SecurityException("Tamanho descompactado excede o limite de 250MB (Zip Bomb detectado).");
+                            }
+                            out.write(buffer, 0, read);
+                        }
+                    }
                 }
                 zis.closeEntry();
             }
+        } catch (Exception e) {
+            deleteQuietly(targetDir);
+            throw e;
         }
 
         Path effectiveRoot = targetDir;
@@ -155,7 +203,17 @@ public class ProjectFileSystemService {
 
         String finalTenant = (tenantId != null && !tenantId.isBlank()) ? tenantId.trim() : "default";
 
-        return projectRepository.save(new ProjectEntity(finalTenant, finalName, effectiveRoot.toString()));
+        return projectRepository.save(new ProjectEntity(finalTenant, finalName, effectiveRoot.toRealPath().toString()));
+    }
+
+    private void deleteQuietly(Path dir) {
+        if (dir != null && Files.exists(dir)) {
+            try (var walk = Files.walk(dir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                });
+            } catch (Exception ignored) {}
+        }
     }
 
     private DirectoryEntryDto toEntry(Path dir) {
@@ -171,8 +229,41 @@ public class ProjectFileSystemService {
         if (Files.exists(dir.resolve("pom.xml"))) {
             return "Maven";
         }
+        if (Files.exists(dir.resolve("angular.json"))) {
+            return "Angular";
+        }
+        if (Files.exists(dir.resolve("next.config.js")) || Files.exists(dir.resolve("next.config.mjs")) || Files.exists(dir.resolve("next.config.ts"))) {
+            return "Next.js";
+        }
         if (Files.exists(dir.resolve("package.json"))) {
-            return "Node";
+            return "Node/TS";
+        }
+        if (Files.exists(dir.resolve("pyproject.toml")) || Files.exists(dir.resolve("requirements.txt")) || Files.exists(dir.resolve("Pipfile")) || Files.exists(dir.resolve("manage.py"))) {
+            return "Python";
+        }
+        if (Files.exists(dir.resolve("go.mod"))) {
+            return "Go";
+        }
+        if (Files.exists(dir.resolve("Cargo.toml"))) {
+            return "Rust";
+        }
+        if (Files.exists(dir.resolve("pubspec.yaml"))) {
+            return "Flutter/Dart";
+        }
+        if (Files.exists(dir.resolve("composer.json"))) {
+            return "PHP";
+        }
+        if (Files.exists(dir.resolve("Gemfile"))) {
+            return "Ruby";
+        }
+        try (var stream = Files.list(dir)) {
+            if (stream.anyMatch(p -> {
+                String n = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                return n.endsWith(".sln") || n.endsWith(".csproj");
+            })) {
+                return ".NET/C#";
+            }
+        } catch (Exception ignored) {
         }
         if (Files.exists(dir.resolve(".git"))) {
             return "Git";

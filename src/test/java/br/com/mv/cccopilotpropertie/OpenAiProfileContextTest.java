@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @SpringBootTest(properties = {
         "llm.openai.api-key=dummy-test-key",
-        "llm.openai.model=gpt-5-mini"
+        "llm.openai.model=gpt-4o-mini"
 })
 @ActiveProfiles("openai")
 class OpenAiProfileContextTest {

@@ -4,9 +4,11 @@ import br.com.mv.cccopilotpropertie.copilot.knowledge.domain.KnowledgeBaseEntity
 import org.springframework.data.jpa.repository.JpaRepository;
 
 
+import java.util.List;
 import java.util.UUID;
 
 public interface KnowledgeBaseRepository
         extends JpaRepository<KnowledgeBaseEntity, UUID> {
+    List<KnowledgeBaseEntity> findByTenantId(String tenantId);
 }
 

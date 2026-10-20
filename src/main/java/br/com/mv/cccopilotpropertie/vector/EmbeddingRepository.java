@@ -1,5 +1,6 @@
 package br.com.mv.cccopilotpropertie.vector;
 
+import br.com.mv.cccopilotpropertie.config.EmbeddingConfig;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -22,6 +23,7 @@ public class EmbeddingRepository {
             String content,
             float[] vector
     ) {
+        validateVector(vector);
         jdbc.update("""
             INSERT INTO code_embeddings (
                 id,
@@ -48,12 +50,21 @@ public class EmbeddingRepository {
             String knowledgeBase,
             String path,
             String content,
-            float[] vector
-    ) {}
+            float[] vector,
+            String fileHash
+    ) {
+        public EmbeddingRecord(UUID id, String tenantId, String knowledgeBase, String path, String content, float[] vector) {
+            this(id, tenantId, knowledgeBase, path, content, vector, null);
+        }
+    }
 
     public void saveBatch(java.util.List<EmbeddingRecord> records) {
         if (records == null || records.isEmpty()) {
             return;
+        }
+
+        for (EmbeddingRecord rec : records) {
+            validateVector(rec.vector());
         }
 
         jdbc.batchUpdate("""
@@ -63,9 +74,10 @@ public class EmbeddingRepository {
                 knowledge_base,
                 path,
                 content,
-                embedding
+                embedding,
+                file_hash
             )
-            VALUES (?, ?, ?, ?, ?, CAST(? AS vector))
+            VALUES (?, ?, ?, ?, ?, CAST(? AS vector), ?)
         """, records, records.size(), (ps, rec) -> {
             ps.setObject(1, rec.id());
             ps.setString(2, rec.tenantId());
@@ -73,7 +85,31 @@ public class EmbeddingRepository {
             ps.setString(4, rec.path());
             ps.setString(5, rec.content());
             ps.setString(6, toVectorLiteral(rec.vector()));
+            ps.setString(7, rec.fileHash());
         });
+    }
+
+    public java.util.Map<String, String> findExistingFileHashes(String tenantId, String knowledgeBase) {
+        java.util.Map<String, String> hashes = new java.util.HashMap<>();
+        jdbc.query(
+                "SELECT DISTINCT path, file_hash FROM code_embeddings WHERE tenant_id = ? AND knowledge_base = ? AND file_hash IS NOT NULL",
+                rs -> {
+                    hashes.put(rs.getString("path"), rs.getString("file_hash"));
+                },
+                tenantId, knowledgeBase
+        );
+        return hashes;
+    }
+
+    private void validateVector(float[] vector) {
+        if (vector == null) {
+            throw new IllegalArgumentException("Embedding vector cannot be null");
+        }
+        if (vector.length != EmbeddingConfig.DIMENSION) {
+            throw new IllegalArgumentException(
+                    "Embedding vector dimension mismatch: expected " + EmbeddingConfig.DIMENSION + ", but got " + vector.length
+            );
+        }
     }
 
     public void deleteByPath(String path) {
@@ -81,6 +117,11 @@ public class EmbeddingRepository {
                 "DELETE FROM code_embeddings WHERE path = ?",
                 path
         );
+    }
+
+    public void deleteByPath(String tenantId, String knowledgeBase, String path) {
+        jdbc.update("DELETE FROM code_embeddings WHERE tenant_id = ? AND knowledge_base = ? AND path = ?",
+                tenantId, knowledgeBase, path);
     }
 
     public void deleteByKnowledgeBase(String tenantId, String knowledgeBase) {

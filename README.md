@@ -1,172 +1,277 @@
 # CC Copilot Properties
 
-Copiloto técnico autônomo para análise de projetos de software. Você indexa um projeto local e faz perguntas em linguagem natural — o agente decide sozinho quais ferramentas usar, busca o código relevante, raciocina sobre o resultado e responde com fontes.
+Copiloto técnico autônomo e motor RAG para análise de projetos de software Java/Spring. O sistema indexa código-fonte local ou via upload ZIP, gera embeddings vetoriais com pgvector, executa busca híbrida (vetorial + simbólica exata) e utiliza um loop agêntico autônomo com chamada de ferramentas (Function Calling) para responder perguntas técnicas, diagnosticar breaking changes e auditar DTOs de API.
 
-## Como funciona
+---
 
-Diferente de um RAG simples, a API usa um **loop agentic com tool calling** (OpenAI function calling). A cada pergunta:
+## 🏛️ Arquitetura do Sistema
 
-1. O LLM recebe a pergunta e decide quais ferramentas chamar
-2. A API executa as ferramentas (busca vetorial, análise de breaking change, auditoria de DTO, etc.)
-3. O resultado é devolvido ao LLM, que pode chamar mais ferramentas ou formular a resposta final
-4. O ciclo repete até o LLM ter informação suficiente (máximo 8 iterações)
+```mermaid
+graph TD
+    Client[Cliente HTTP / Frontend] -->|X-API-Key + X-Tenant-ID| Security[ApiKeyFilter & MdcLoggingFilter]
+    Security --> Controller[Controllers REST]
+    
+    subgraph "Camada de Aplicação & Agente"
+        Controller --> ProjectService[ProjectService]
+        Controller --> CopilotService[CopilotService]
+        Controller --> IndexService[IndexService]
+        CopilotService --> AgentLoop[AgentLoop]
+        AgentLoop --> AgentTools[AgentToolExecutor]
+    end
 
-Não há classificação manual de intenção — o modelo raciocina livremente.
+    subgraph "Núcleo RAG & Análise"
+        AgentTools --> SearchService[SearchService - Híbrido]
+        AgentTools --> BreakingAnalyzer[BreakingChangeAnalyzer & ImpactAnalysis]
+        AgentTools --> AuditService[AuditService]
+        SearchService --> ReRanker[ReRanker - Score Descending]
+        IndexService --> ChunkService[ChunkService - Record/DTO/Controller Aware]
+        IndexService --> FileScanner[FileScannerService]
+    end
 
-## Ferramentas disponíveis para o agente
+    subgraph "Provedores de IA / LLM"
+        AgentLoop -.-> LlmClient[LlmClient: OpenAI / Ollama / Mock]
+        IndexService -.-> Embedder[EmbeddingService: OpenAI / Ollama / Mock]
+    end
 
-| Tool | O que faz |
-|---|---|
-| `search_code` | Busca semântica em código, config e documentação |
-| `find_dto_definition` | Localiza a definição de um DTO pelo nome |
-| `find_dto_usages` | Lista todos os arquivos que referenciam um DTO |
-| `find_endpoints_using_dto` | Lista controllers REST que usam um DTO |
-| `find_external_usages` | Verifica se um DTO é usado em outros projetos |
-| `analyze_breaking_change` | Analisa se remover/alterar um campo é breaking change |
-| `audit_dto` | Auditoria completa: risco, validações, contratos, recomendações |
+    subgraph "Persistência & Vetores"
+        SearchService --> PgRepo[PostgresSearchRepository]
+        IndexService --> EmbRepo[EmbeddingRepository]
+        PgRepo --> Postgres[(PostgreSQL 16 + pgvector)]
+        EmbRepo --> Postgres
+        AuditService --> Postgres
+    end
+```
 
-## Subir localmente
+### Principais Características
+1. **Loop Agêntico Autônomo:** Não há intenções hardcoded; o agente decide sozinho quais ferramentas acionar iterativamente até formular a resposta final com cálculo de confiança.
+2. **Busca Híbrida & Re-Ranking:** Combina busca semântica por proximidade de cosseno com busca simbólica exata por palavras-chave relevantes, reordenando candidatos por score decrescente.
+3. **Chunking Inteligente:** Nunca fragmenta DTOs, reconhece Records do Java, sufixos case-insensitive (`DTO`, `Dto`, `Request`), anotações Lombok (`@Data`, `@Value`, `@Getter`) e inclui overlap contínuo para evitar quebra de código.
+4. **Detecção Rigorosa de Breaking Changes:** Desacopla uso interno de contrato público. Se um DTO está exposto em `@RestController`, qualquer remoção, renomeação, mudança de tipo ou inclusão de campo obrigatório (`@NotNull`, `@NotBlank`) é classificada como **BREAKING CHANGE**.
+5. **Indexação Incremental (SHA-256):** Calcula hash dos arquivos e apenas re-processa o que foi de fato alterado, limpando automaticamente arquivos removidos.
+6. **Segurança Hardened & Multitenancy:** Isolamento estrito por `tenantId` em todas as consultas e tabelas, proteção contra Zip Bomb e Path Traversal em uploads, e autenticação com tempo constante.
+7. **Observabilidade Nativa:** Health checks do PostgreSQL/pgvector e provedor LLM, métricas Micrometer para tempos de RAG e contagens de consultas, e logs estruturados com MDC (`tenantId`, `requestId`).
 
-1. Suba o PostgreSQL com pgvector:
+---
+
+## 🛠️ Pré-requisitos
+
+- **Java 17** ou superior
+- **Docker** e **Docker Compose**
+- Chave de API da OpenAI (opcional caso utilize o perfil `mock` ou `ollama`)
+
+---
+
+## 🚀 Inicialização Rápida
+
+### 1. Subir o Banco de Dados (PostgreSQL + pgvector)
+
+O `compose.yaml` já está configurado na porta padronizada `5434`:
+
 ```bash
 docker compose up -d
 ```
 
-2. Copie as variáveis de ambiente:
+### 2. Configurar Variáveis de Ambiente
+
+Copie o arquivo de exemplo:
+
 ```bash
 cp .env.example .env
 ```
 
-3. Execute com perfil mock (sem chamadas externas, ideal para desenvolvimento):
-```bash
-./gradlew bootRun
+Configurações padrão recomendadas no `.env`:
+```env
+DB_URL=jdbc:postgresql://localhost:5434/copilot
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+API_KEY=local-dev-key
+INDEXER_BASE_PATH=.
 ```
 
-Para usar o agente de verdade com OpenAI:
+---
+
+## 🎭 Perfis de Execução
+
+### Perfil Mock (Recomendado para Desenvolvimento Local)
+Sem custos e sem dependência de internet. Simula o LLM e embeddings localmente:
 ```bash
-SPRING_PROFILES_ACTIVE=openai OPENAI_API_KEY=sk-... ./gradlew bootRun
+./gradlew bootRun --args='--spring.profiles.active=mock'
 ```
 
-Toda chamada precisa do header `X-API-Key` com o valor configurado em `API_KEY` (padrão: `local-dev-key`).
+### Perfil OpenAI (Produção)
+Utiliza `gpt-4o-mini` e embeddings `text-embedding-3-small` (1536 dimensões):
+```bash
+OPENAI_API_KEY=sk-proj-... SPRING_PROFILES_ACTIVE=openai ./gradlew bootRun
+```
 
-## Fluxo de uso
+### Perfil Ollama (100% Local com IA Open-Source)
+Utiliza modelos locais como `qwen2.5-coder` e `nomic-embed-text`:
+```bash
+SPRING_PROFILES_ACTIVE=ollama OLLAMA_BASE_URL=http://localhost:11434 ./gradlew bootRun
+```
 
-### 1. Cadastre o projeto
+---
 
-O `rootPath` precisa estar dentro de `INDEXER_BASE_PATH` (padrão: diretório atual).
+## 🔒 Autenticação e Multitenancy
 
+Todas as requisições para a API (exceto Swagger e Actuator) exigem autenticação via header:
+- `X-API-Key`: Chave configurada em `API_KEY`.
+- `X-Tenant-ID`: Identificador do tenant para isolamento de dados (padrão: `default`).
+- `X-Request-ID`: ID opcional para rastreamento distribuído (gerado automaticamente se ausente).
+
+---
+
+## 📡 Guia de Endpoints e Exemplos cURL
+
+### 1. Cadastrar um Projeto
+O `rootPath` deve ser um diretório existente dentro de `INDEXER_BASE_PATH`:
 ```bash
 curl -X POST http://localhost:8080/projects \
-  -H 'Content-Type: application/json' \
-  -H 'X-API-Key: local-dev-key' \
-  -d '{"tenantId":"default","name":"meu-projeto","rootPath":"/caminho/do/projeto"}'
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "tenantId": "hospital-central",
+    "name": "modulo-prescricao",
+    "rootPath": "./src"
+  }'
 ```
 
-Resposta:
+### 2. Upload de Projeto via ZIP (com Proteção contra Zip Bomb)
+```bash
+curl -X POST http://localhost:8080/projects/upload \
+  -H "X-API-Key: local-dev-key" \
+  -F "file=@codigo-fonte.zip" \
+  -F "tenantId=hospital-central" \
+  -F "name=servico-faturamento"
+```
+
+### 3. Iniciar Indexação Assíncrona
+```bash
+curl -X POST http://localhost:8080/projects/{projectId}/index/async \
+  -H "X-API-Key: local-dev-key"
+```
+Resposta imediata (HTTP 202 Accepted):
 ```json
 {
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "tenantId": "default",
-  "name": "meu-projeto",
-  "rootPath": "/caminho/do/projeto"
+  "jobId": "f7d456b3-...",
+  "tenantId": "hospital-central",
+  "knowledgeBase": "modulo-prescricao",
+  "status": "SUBMITTED",
+  "totalFiles": 0,
+  "processedFiles": 0,
+  "progressPercent": 0
 }
 ```
 
-### 2. Indexe o projeto
-
-Use o `id` retornado. A indexação lê todos os arquivos `.java`, `.kt`, `.groovy`, `.yaml`, `.sql` e `.md` dentro do `rootPath`, gera embeddings e armazena no pgvector.
-
+### 4. Consultar Progresso da Indexação
 ```bash
-curl -X POST http://localhost:8080/projects/3fa85f64-5717-4562-b3fc-2c963f66afa6/index \
-  -H 'X-API-Key: local-dev-key'
+curl -X GET http://localhost:8080/projects/{projectId}/index/status \
+  -H "X-API-Key: local-dev-key"
 ```
 
-Resposta:
+### 5. Fazer Perguntas ao Copiloto
+```bash
+curl -X POST http://localhost:8080/projects/{projectId}/ask \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "question": "Posso remover o campo dosagem do MedicamentoDTO?",
+    "sessionId": "sessao-dev-01"
+  }'
+```
+Resposta com fontes e análise de impacto:
 ```json
 {
-  "jobId": "...",
-  "filesIndexed": 42,
-  "chunksIndexed": 318
-}
-```
-
-### 3. Faça perguntas
-
-Use o mesmo `sessionId` para manter contexto entre perguntas relacionadas. O agente usa o histórico da sessão para entender referências como "isso", "esse campo", "esse DTO".
-
-```bash
-curl -X POST http://localhost:8080/projects/3fa85f64-5717-4562-b3fc-2c963f66afa6/ask \
-  -H 'Content-Type: application/json' \
-  -H 'X-API-Key: local-dev-key' \
-  -d '{"sessionId":"dev-1","question":"posso remover o campo cnpj do ClienteDTO?"}'
-```
-
-Resposta:
-```json
-{
-  "answer": "O campo `cnpj` do ClienteDTO é utilizado em 3 arquivos...",
+  "answer": "A remoção do campo `dosagem` no MedicamentoDTO constitui uma **BREAKING CHANGE CRÍTICA** pois este DTO é utilizado no endpoint POST `/api/medicamentos` de PrescricaoController. Recomenda-se criar uma versão v2 da rota.",
+  "confidence": 0.95,
   "sources": [
-    { "path": "/src/main/java/ClienteController.java", "score": 0.94 },
-    { "path": "/src/main/java/ClienteService.java", "score": 0.91 }
-  ],
-  "confidence": 0.92,
-  "structured": null,
-  "alert": null,
-  "suggestedPatch": null,
-  "plan": null
+    { "path": "MedicamentoDTO.java", "score": 1.0 },
+    { "path": "PrescricaoController.java", "score": 0.92 }
+  ]
 }
 ```
 
-## Exemplos de perguntas
-
-O agente entende linguagem natural. Alguns exemplos:
-
-```
-"O que esse projeto faz?"
-"Quais endpoints existem?"
-"Posso remover o campo cpf do PessoaDTO?"
-"Isso é uma breaking change?"
-"Esse DTO é usado em outros sistemas?"
-"Faz uma auditoria do ClienteDTO"
-"Onde devo alterar para adicionar um novo campo de telefone?"
-"Quais DTOs têm risco alto?"
+### 6. Histórico Paginado de Interações
+```bash
+curl -X GET "http://localhost:8080/history?tenantId=hospital-central&page=0&size=10" \
+  -H "X-API-Key: local-dev-key"
 ```
 
-Perguntas sequenciais na mesma sessão funcionam com referências implícitas:
+### 7. Métricas de Auditoria de DTOs
+```bash
+curl -X GET "http://localhost:8080/copilot/audit/dtos?tenantId=hospital-central" \
+  -H "X-API-Key: local-dev-key"
+```
+
+### 8. Modificação e Correção de Código (Pelo Agente ou via API)
+O copiloto pode **aplicar correções diretamente no código do projeto** durante o chat (via tools `modify_file` e `write_file`) ou através da API REST com geração automática de backup `.bak`, diff unificado e reindexação instantânea:
+```bash
+curl -X POST http://localhost:8080/projects/{projectId}/modify-file \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: local-dev-key" \
+  -d '{
+    "path": "src/main/java/br/com/mv/MedicamentoDTO.java",
+    "targetContent": "    private String dosagem;\n",
+    "replacementContent": "    @Deprecated(since = \"2.1\")\n    private String dosagem;\n",
+    "reason": "Deprecar campo para manter retrocompatibilidade com clientes legados"
+  }'
+```
+Resposta detalhada com diff e backup:
+```json
+{
+  "success": true,
+  "path": "src/main/java/br/com/mv/MedicamentoDTO.java",
+  "status": "MODIFIED",
+  "diff": "--- a/src/main/java/br/com/mv/MedicamentoDTO.java\n+++ b/src/main/java/br/com/mv/MedicamentoDTO.java\n@@ Modificação @@\n-     private String dosagem;\n+     @Deprecated(since = \"2.1\")\n+     private String dosagem;\n",
+  "backupPath": ".../MedicamentoDTO.java.bak",
+  "message": "Código alterado com sucesso. Motivo: Deprecar campo para manter retrocompatibilidade..."
+}
+```
+
+---
+
+## 📊 Observabilidade e Saúde
+
+### Health Check Detalhado
+```bash
+curl -X GET http://localhost:8080/actuator/health
+```
+Exemplo de resposta:
+```json
+{
+  "status": "UP",
+  "components": {
+    "db": { "status": "UP" },
+    "diskSpace": { "status": "UP" },
+    "pgVector": {
+      "status": "UP",
+      "details": { "extension": "vector", "status": "installed" }
+    },
+    "llmProvider": {
+      "status": "UP",
+      "details": { "provider": "mock", "mode": "local-development" }
+    }
+  }
+}
+```
+
+### Métricas Micrometer
+- `GET /actuator/metrics/rag.embedding.time`
+- `GET /actuator/metrics/rag.search.time`
+- `GET /actuator/metrics/rag.queries.total`
+
+### Swagger / Documentação Interativa OpenAPI
+Acesse pelo navegador:
+```
+http://localhost:8080/swagger-ui/index.html
+```
+
+---
+
+## 🧪 Execução de Testes
+
+Para executar toda a suíte de testes com validações de segurança, multitenancy, RAG, breaking changes e indexação incremental:
 
 ```bash
-# Pergunta 1
-{"sessionId":"s1","question":"posso remover o campo email do UsuarioDTO?"}
-
-# Pergunta 2 — o agente sabe que "isso" é o campo email do UsuarioDTO
-{"sessionId":"s1","question":"isso quebra alguma API?"}
-
-# Pergunta 3
-{"sessionId":"s1","question":"e impacta outro sistema?"}
+./gradlew test
 ```
-
-## Endpoints
-
-| Método | Endpoint | Descrição |
-|---|---|---|
-| `POST` | `/projects` | Cadastra um projeto |
-| `POST` | `/projects/{id}/index` | Indexa o projeto |
-| `POST` | `/projects/{id}/ask` | Pergunta ao agente sobre o projeto |
-| `POST` | `/index?path=&knowledgeBase=` | Indexação manual (legado) |
-| `POST` | `/copilot/ask` | Pergunta sem projeto (legado) |
-| `POST` | `/tenants/{tenantId}/knowledge-bases?name=` | Cria base de conhecimento |
-| `GET` | `/history?tenantId=&knowledgeBase=` | Histórico paginado de interações |
-| `GET` | `/copilot/audit/dtos` | Métricas de auditoria de DTOs |
-
-## Variáveis de ambiente
-
-| Variável | Padrão | Descrição |
-|---|---|---|
-| `SPRING_PROFILES_ACTIVE` | `mock` | `mock` (sem OpenAI) ou `openai` |
-| `OPENAI_API_KEY` | — | Chave da API OpenAI (obrigatório no perfil `openai`) |
-| `OPENAI_MODEL` | `gpt-5-mini` | Modelo a usar |
-| `API_KEY` | `local-dev-key` | Chave do header `X-API-Key` |
-| `DB_URL` | `jdbc:postgresql://localhost:5434/copilot` | URL do banco |
-| `DB_USERNAME` | `postgres` | Usuário do banco |
-| `DB_PASSWORD` | `postgres` | Senha do banco |
-| `INDEXER_BASE_PATH` | `.` | Diretório raiz permitido para indexação |

@@ -40,3 +40,4 @@ out/
 .env
 application-openai.yaml
 src/main/resources/application-openai.yaml
+*.bak

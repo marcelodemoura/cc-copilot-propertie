@@ -2,30 +2,78 @@ package br.com.mv.cccopilotpropertie.copilot.alert;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
-    public ResponseEntity<Map<String, String>> handleInvalidRequest(Exception ex) {
-        String message = ex instanceof MethodArgumentNotValidException validation
-                ? validation.getBindingResult().getFieldErrors().stream()
-                    .findFirst().map(error -> error.getField() + " " + error.getDefaultMessage())
-                    .orElse("Requisição inválida")
-                : ex.getMessage();
-        return ResponseEntity.badRequest().body(Map.of("error", message));
+    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
+        return handleAsyncTimeout(ex, null, null);
+    }
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex,
+                                                                    HttpServletRequest request,
+                                                                    HttpServletResponse response) {
+        log.warn("Timeout de requisição assíncrona: {}", ex.getMessage());
+        // Se a resposta já foi commitada (ex: SSE) ou o cliente aceita event-stream, evite escrever o corpo
+        if ((response != null && response.isCommitted()) || isSseRequest(request, response)) {
+            log.debug("Resposta já commitada ou SSE detectado; apenas retornando status sem corpo");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(503, "Tempo limite esgotado ao processar a requisição", null));
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(404, ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<Map<String, Object>> handleSecurityException(SecurityException ex) {
+        log.warn("Violação de segurança detectada: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(403, ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex) {
+        java.util.Map<String, String> errors = new java.util.LinkedHashMap<>();
+        for (org.springframework.validation.FieldError error : ex.getBindingResult().getFieldErrors()) {
+            errors.put(error.getField(), error.getDefaultMessage() != null ? error.getDefaultMessage() : "Inválido");
+        }
+        String firstMessage = errors.values().stream().findFirst().orElse("Requisição inválida");
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(400, firstMessage, errors));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(400, ex.getMessage() != null ? ex.getMessage() : "Requisição inválida", null));
     }
 
     @ExceptionHandler(HttpClientErrorException.class)
-    public ResponseEntity<Map<String, String>> handleOpenAiError(HttpClientErrorException ex) {
+    public ResponseEntity<Map<String, Object>> handleOpenAiError(HttpClientErrorException ex) {
         log.error("Erro na chamada OpenAI: {} — {}", ex.getStatusCode(), ex.getResponseBodyAsString());
         String detail = switch (ex.getStatusCode().value()) {
             case 401 -> "OPENAI_API_KEY inválida ou não configurada.";
@@ -33,17 +81,56 @@ public class GlobalExceptionHandler {
             case 400 -> "Requisição inválida para a OpenAI: " + ex.getResponseBodyAsString();
             default  -> "Erro na OpenAI (%d): %s".formatted(ex.getStatusCode().value(), ex.getResponseBodyAsString());
         };
-        return ResponseEntity.status(502).body(Map.of("error", detail));
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(502, detail, null));
     }
 
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
-        return ResponseEntity.status(404).body(Map.of("error", "Recurso não encontrado: " + ex.getResourcePath()));
+    public ResponseEntity<Map<String, Object>> handleNotFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(404, "Recurso não encontrado: " + ex.getResourcePath(), null));
+    }
+
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
+        return handleUnexpected(ex, null, null);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex,
+                                                                 HttpServletRequest request,
+                                                                 HttpServletResponse response) {
         log.error("Erro inesperado", ex);
-        return ResponseEntity.internalServerError().body(Map.of("error", ex.getClass().getSimpleName() + ": " + ex.getMessage()));
+        if ((response != null && response.isCommitted()) || isSseRequest(request, response)) {
+            log.debug("Resposta já commitada ou SSE detectado; não escrever corpo de erro genérico");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+        return ResponseEntity.internalServerError()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(buildErrorBody(500, ex.getClass().getSimpleName() + ": " + ex.getMessage(), null));
+    }
+
+    private Map<String, Object> buildErrorBody(int status, String error, Object details) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("status", status);
+        body.put("error", error);
+        if (details != null) {
+            body.put("details", details);
+        }
+        body.put("timestamp", java.time.OffsetDateTime.now().toString());
+        return body;
+    }
+
+    private boolean isSseRequest(HttpServletRequest request, HttpServletResponse response) {
+        if (request != null) {
+            String accept = request.getHeader("Accept");
+            if (accept != null && accept.contains("text/event-stream")) return true;
+        }
+        if (response != null) {
+            String ct = response.getContentType();
+            if (ct != null && ct.contains("text/event-stream")) return true;
+        }
+        return false;
     }
 }

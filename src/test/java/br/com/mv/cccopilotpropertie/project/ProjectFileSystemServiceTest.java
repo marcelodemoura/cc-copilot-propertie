@@ -107,4 +107,23 @@ class ProjectFileSystemServiceTest {
         assertTrue(Files.exists(Path.of(created.getRootPath())));
         assertTrue(Files.exists(Path.of(created.getRootPath(), "build.gradle")));
     }
+
+    @Test
+    void shouldRejectZipSlipAttack() throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(baos)) {
+            ZipEntry malicious = new ZipEntry("../../etc/cron.d/malicious");
+            zos.putNextEntry(malicious);
+            zos.write("malicious payload".getBytes());
+            zos.closeEntry();
+        }
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "evil.zip", "application/zip", baos.toByteArray()
+        );
+
+        assertThrows(SecurityException.class, () ->
+                fileSystemService.uploadAndExtractZip(file, "Evil Project", "default")
+        );
+    }
 }

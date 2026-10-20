@@ -42,7 +42,15 @@ public class FileScannerService {
         String p = path.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
         if (p.contains("/.git/") || p.contains("/target/") || p.contains("/build/")
                 || p.contains("/.idea/") || p.contains("/node_modules/")
-                || p.contains("/.gradle/") || p.contains("/log/") || p.contains("/logs/")) {
+                || p.contains("/.gradle/") || p.contains("/log/") || p.contains("/logs/")
+                || p.contains("/dist/") || p.contains("/.next/") || p.contains("/.nuxt/")
+                || p.contains("/__pycache__/") || p.contains("/.venv/") || p.contains("/venv/")
+                || p.contains("/coverage/") || p.contains("/out/")) {
+            return false;
+        }
+
+        // Ignora arquivos minificados ou locks pesados
+        if (p.endsWith(".min.js") || p.endsWith(".min.css") || p.endsWith("-lock.json") || p.endsWith("yarn.lock") || p.endsWith("pnpm-lock.yaml")) {
             return false;
         }
 
@@ -59,10 +67,24 @@ public class FileScannerService {
             return false;
         }
 
-        return p.endsWith(".java") || p.endsWith(".kt") || p.endsWith(".groovy")
-                || p.endsWith(".xml") || p.endsWith(".yml") || p.endsWith(".yaml")
-                || p.endsWith(".properties") || p.endsWith(".md") || p.endsWith(".sql")
-                || p.endsWith(".json") || p.endsWith(".gradle") || p.endsWith(".gradle.kts")
-                || p.endsWith(".tf") || p.endsWith(".sh");
+        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (fileName.equals("dockerfile") || fileName.equals("makefile") || fileName.equals("jenkinsfile")) {
+            return true;
+        }
+
+        return p.endsWith(".java") || p.endsWith(".kt") || p.endsWith(".kts") || p.endsWith(".groovy")
+                || p.endsWith(".ts") || p.endsWith(".tsx") || p.endsWith(".js") || p.endsWith(".jsx")
+                || p.endsWith(".mjs") || p.endsWith(".cjs") || p.endsWith(".vue") || p.endsWith(".svelte")
+                || p.endsWith(".py") || p.endsWith(".go") || p.endsWith(".rs") || p.endsWith(".cs")
+                || p.endsWith(".php") || p.endsWith(".rb") || p.endsWith(".swift") || p.endsWith(".dart")
+                || p.endsWith(".c") || p.endsWith(".cpp") || p.endsWith(".h") || p.endsWith(".hpp")
+                || p.endsWith(".html") || p.endsWith(".css") || p.endsWith(".scss") || p.endsWith(".less")
+                || p.endsWith(".xml") || p.endsWith(".yml") || p.endsWith(".yaml") || p.endsWith(".toml")
+                || p.endsWith(".properties") || p.endsWith(".md") || p.endsWith(".graphql") || p.endsWith(".prisma")
+                || p.endsWith(".sql") || p.endsWith(".pks") || p.endsWith(".pkb") || p.endsWith(".pls")
+                || p.endsWith(".plb") || p.endsWith(".prc") || p.endsWith(".fnc") || p.endsWith(".trg")
+                || p.endsWith(".vw") || p.endsWith(".tps") || p.endsWith(".tpb") || p.endsWith(".ddl")
+                || p.endsWith(".dml") || p.endsWith(".hql") || p.endsWith(".cql")
+                || p.endsWith(".json") || p.endsWith(".gradle") || p.endsWith(".tf") || p.endsWith(".sh") || p.endsWith(".bat");
     }
 }

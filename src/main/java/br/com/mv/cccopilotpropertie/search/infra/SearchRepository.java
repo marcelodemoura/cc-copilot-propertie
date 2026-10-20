@@ -14,11 +14,31 @@ public interface SearchRepository {
             int limit
     );
 
+    default List<SearchResult> search(
+            String tenantId,
+            String knowledgeBase,
+            float[] vector,
+            int limit,
+            int offset
+    ) {
+        return search(tenantId, knowledgeBase, vector, limit);
+    }
+
     default List<SearchResult> searchKeyword(
             String tenantId,
             String knowledgeBase,
             String keyword,
             int limit
+    ) {
+        return searchKeyword(tenantId, knowledgeBase, keyword, limit, 0);
+    }
+
+    default List<SearchResult> searchKeyword(
+            String tenantId,
+            String knowledgeBase,
+            String keyword,
+            int limit,
+            int offset
     ) {
         return List.of();
     }
