@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.hibernate.validator.internal.util.Contracts.assertTrue;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
@@ -119,5 +120,67 @@ class AgentToolExecutorCodeModificationTest {
 
         String gitResult = executor.execute("git_changes", "{\"project\": \"projeto-b\"}", "tenant-1", "projeto-a");
         assertTrue(gitResult.contains("ClienteDTO.java"));
+    }
+
+    @Test
+    void shouldHighlightFrontendAndIncludeSectionMapOnLargeFiles() throws IOException {
+        Path staticDir = tempDir.resolve("src/main/resources/static");
+        Path javaDir = tempDir.resolve("src/main/java/br/com/mv");
+        Files.createDirectories(staticDir);
+        Files.createDirectories(javaDir);
+
+        for (int i = 1; i <= 30; i++) {
+            Files.writeString(javaDir.resolve("Classe" + i + ".java"), "public class Classe" + i + " {}");
+        }
+
+        StringBuilder html = new StringBuilder("<!DOCTYPE html>\n<html>\n<head>\n<style>\nbody { color: #fff; }\n</style>\n</head>\n<body>\n");
+        for (int i = 1; i <= 360; i++) {
+            html.append("<div>Linha ").append(i).append("</div>\n");
+        }
+        html.append("<script>\nfunction sendQuestion() {\n  return true;\n}\n</script>\n</body>\n</html>");
+        Files.writeString(staticDir.resolve("index.html"), html.toString());
+
+        String listResult = executor.execute("list_files", "{}", "tenant-1", "");
+        assertTrue(listResult.contains("src/main/resources/static/index.html"), "Deveria destacar index.html no list_files");
+
+        String searchResult = executor.execute("search_code", "{\"query\": \"interface grafica front\"}", "tenant-1", "");
+        assertTrue(searchResult.contains("src/main/resources/static/index.html"), "Deveria encontrar index.html na busca local de UI");
+
+        String readResult = executor.execute("read_file", "{\"path\": \"src/main/resources/static/index.html\"}", "tenant-1", "");
+        assertTrue(readResult.contains("[Mapa das próximas seções do arquivo"), "Deveria incluir mapa das próximas seções");
+        assertTrue(readResult.contains("function sendQuestion()"), "Deveria mapear função JS após a página 1");
+    }
+
+    @Test
+    void shouldStripLineNumberPrefixesInModifyFileAndBlockPartialWriteOnLargeFile() throws IOException {
+        StringBuilder content = new StringBuilder();
+        for (int i = 1; i <= 100; i++) {
+            content.append("linha ").append(i).append("\n");
+        }
+        Path bigFile = tempDir.resolve("index.html");
+        Files.writeString(bigFile, content.toString());
+
+        // Tenta sobrescrever arquivo de 100 linhas com apenas 3 linhas via write_file -> deve bloquear
+        String writeArgs = """
+                {
+                    "path": "index.html",
+                    "content": "<div>parcial</div>\\n"
+                }
+                """;
+        String writeRes = executor.execute("write_file", writeArgs, "tenant-1", "");
+        assertTrue(writeRes.contains("FALHA NA MODIFICAÇÃO DE CÓDIGO"));
+        assertTrue(writeRes.contains("use 'modify_file'"));
+
+        // Usa modify_file mesmo com prefixo de número de linha copiado do read_file -> deve funcionar
+        String modArgs = """
+                {
+                    "path": "index.html",
+                    "targetContent": "10: linha 10\\n11: linha 11",
+                    "replacementContent": "linha 10 alterada\\nlinha 11 alterada"
+                }
+                """;
+        String modRes = executor.execute("modify_file", modArgs, "tenant-1", "");
+        assertTrue(modRes.contains("MODIFICAÇÃO DE CÓDIGO EXECUTADA COM SUCESSO"));
+        assertTrue(Files.readString(bigFile).contains("linha 10 alterada"));
     }
 }

@@ -401,8 +401,102 @@ public class AgentToolExecutor {
             }
             return sb.length() == 0 ? "Nenhum resultado encontrado nos projetos." : sb.toString();
         }
-        List<SearchResult> results = searchService.search(tenantId, kb, query, limit);
-        return formatResults(results);
+        List<SearchResult> vectorResults = searchService.search(tenantId, kb, query, limit);
+        List<SearchResult> localResults = searchLocalFiles(resolveProjectPath(kb), query, limit);
+
+        java.util.Map<String, SearchResult> merged = new java.util.LinkedHashMap<>();
+        for (SearchResult lr : localResults) {
+            merged.put(lr.path(), lr);
+        }
+        if (vectorResults != null) {
+            for (SearchResult vr : vectorResults) {
+                if (merged.size() >= limit + 4) break;
+                merged.putIfAbsent(vr.path(), vr);
+            }
+        }
+        if (merged.isEmpty()) {
+            return "Nenhum resultado encontrado no projeto para: " + query;
+        }
+        return formatResults(new ArrayList<>(merged.values()));
+    }
+
+    private List<SearchResult> searchLocalFiles(Path projectRoot, String query, int limit) {
+        if (projectRoot == null || query == null || query.isBlank() || !Files.isDirectory(projectRoot)) {
+            return List.of();
+        }
+        String qLower = query.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean isUiQuery = qLower.contains("front") || qLower.contains("interface") || qLower.contains("tela")
+                || qLower.contains("ui") || qLower.contains("html") || qLower.contains("vue")
+                || qLower.contains("tsx") || qLower.contains("css") || qLower.contains("static")
+                || qLower.contains("chat") || qLower.contains("sidebar") || qLower.contains("index");
+
+        String[] tokens = java.util.Arrays.stream(qLower.split("[^a-zA-Z0-9_.\\-]+"))
+                .filter(t -> t.length() >= 2)
+                .toArray(String[]::new);
+
+        List<SearchResult> matches = new ArrayList<>();
+        try (var walk = Files.walk(projectRoot, 8)) {
+            List<Path> files = walk.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String norm = p.toString().replace('\\', '/');
+                        for (String ig : IGNORED_DIRS) {
+                            if (norm.contains("/" + ig + "/")) return false;
+                        }
+                        return !p.getFileName().toString().endsWith(".bak");
+                    })
+                    .toList();
+
+            for (Path f : files) {
+                String relPath = projectRoot.relativize(f).toString().replace('\\', '/');
+                String relLower = relPath.toLowerCase(java.util.Locale.ROOT);
+
+                double score = 0.0;
+                if (isUiQuery && (relLower.endsWith(".html") || relLower.endsWith(".vue") || relLower.endsWith(".tsx")
+                        || relLower.endsWith(".jsx") || relLower.endsWith(".css") || relLower.contains("static/"))) {
+                    score += 0.95;
+                }
+                for (String tok : tokens) {
+                    if (relLower.contains(tok)) {
+                        score += 0.5;
+                    }
+                }
+
+                if (score > 0.0) {
+                    try {
+                        if (Files.size(f) <= 300 * 1024) {
+                            String content = Files.readString(f, StandardCharsets.UTF_8);
+                            String snippet = extractMatchingSnippet(content, tokens);
+                            matches.add(new SearchResult(relPath, snippet, Math.min(1.0, score)));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        matches.sort((a, b) -> Double.compare(b.score(), a.score()));
+        return matches.size() > Math.max(4, limit / 2) ? matches.subList(0, Math.max(4, limit / 2)) : matches;
+    }
+
+    private String extractMatchingSnippet(String content, String[] tokens) {
+        if (content == null || content.isEmpty()) return "";
+        String[] lines = content.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String lineLower = lines[i].toLowerCase(java.util.Locale.ROOT);
+            for (String tok : tokens) {
+                if (tok.length() >= 3 && lineLower.contains(tok)) {
+                    int start = Math.max(0, i - 2);
+                    int end = Math.min(lines.length, i + 8);
+                    StringBuilder sb = new StringBuilder();
+                    for (int j = start; j < end; j++) {
+                        sb.append(j + 1).append(": ").append(lines[j]).append("\n");
+                    }
+                    return sb.toString();
+                }
+            }
+        }
+        return content.substring(0, Math.min(450, content.length()));
     }
 
     private String findDtoDefinition(Map<String, Object> args, String tenantId, String kb) {
@@ -567,7 +661,7 @@ public class AgentToolExecutor {
                     : 1;
             int end = args.containsKey("endLine") && args.get("endLine") != null
                     ? Math.min(totalLines, ((Number) args.get("endLine")).intValue())
-                    : Math.min(totalLines, start + 250);
+                    : Math.min(totalLines, start + 349);
 
             if (start > totalLines) {
                 return "O arquivo possui apenas " + totalLines + " linhas.";
@@ -578,10 +672,51 @@ public class AgentToolExecutor {
             for (int i = start - 1; i < end; i++) {
                 sb.append(i + 1).append(": ").append(lines.get(i)).append("\n");
             }
+
+            if (end < totalLines) {
+                int nextStart = end + 1;
+                int nextEnd = Math.min(totalLines, end + 350);
+                sb.append("\n[Paginação: Exibindo linhas ").append(start).append(" a ").append(end)
+                        .append(" de ").append(totalLines).append(". Para ler a continuação, chame read_file com startLine=")
+                        .append(nextStart).append(" e endLine=").append(nextEnd).append("]\n");
+                String sectionMap = buildRemainingSectionsMap(lines, end, totalLines);
+                if (!sectionMap.isEmpty()) {
+                    sb.append("[Mapa das próximas seções do arquivo (linhas ").append(nextStart).append(" a ").append(totalLines).append(")]:\n")
+                            .append(sectionMap);
+                }
+            }
             return sb.toString();
         } catch (Exception e) {
             return "Erro ao ler arquivo " + rawPath + ": " + e.getMessage();
         }
+    }
+
+    private String buildRemainingSectionsMap(List<String> lines, int afterLine, int totalLines) {
+        StringBuilder mapSb = new StringBuilder();
+        int count = 0;
+        for (int i = afterLine; i < totalLines && count < 25; i++) {
+            String trimmed = lines.get(i).trim();
+            if (trimmed.isEmpty()) continue;
+            if (trimmed.startsWith("<!--")
+                    || trimmed.startsWith("<style")
+                    || trimmed.startsWith("<aside")
+                    || trimmed.startsWith("<main")
+                    || trimmed.startsWith("<header")
+                    || trimmed.startsWith("<script")
+                    || trimmed.startsWith("function ")
+                    || trimmed.startsWith("async function ")
+                    || trimmed.startsWith("public class ")
+                    || trimmed.startsWith("public interface ")
+                    || trimmed.startsWith("public record ")
+                    || trimmed.startsWith("@ExceptionHandler")
+                    || trimmed.startsWith("@GetMapping")
+                    || trimmed.startsWith("@PostMapping")) {
+                String preview = trimmed.length() > 90 ? trimmed.substring(0, 90) + "..." : trimmed;
+                mapSb.append("  Linha ").append(i + 1).append(": ").append(preview).append("\n");
+                count++;
+            }
+        }
+        return mapSb.toString();
     }
 
     private static final java.util.Set<String> IGNORED_DIRS = java.util.Set.of(
@@ -614,6 +749,18 @@ public class AgentToolExecutor {
 
             StringBuilder sb = new StringBuilder();
             sb.append("ÁRVORE DE ARQUIVOS: ").append(target).append(" (profundidade: ").append(maxDepth).append(")\n");
+
+            if (subPath == null || subPath.isBlank() || ".".equals(subPath.trim())) {
+                List<String> highlights = detectKeyProjectFiles(realTarget);
+                if (!highlights.isEmpty()) {
+                    sb.append("[ARQUIVOS DE INTERFACE (FRONTEND/UI) E CONFIGURAÇÃO DETECTADOS NESTE PROJETO]:\n");
+                    for (String h : highlights) {
+                        sb.append("  * ").append(h).append("\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+
             List<String> treeLines = new ArrayList<>();
             buildTree(target, maxDepth, 1, treeLines);
             for (String line : treeLines) {
@@ -628,21 +775,65 @@ public class AgentToolExecutor {
         }
     }
 
+    private List<String> detectKeyProjectFiles(Path root) {
+        List<String> candidates = List.of(
+                "src/main/resources/static/index.html",
+                "src/main/resources/templates/index.html",
+                "public/index.html",
+                "index.html",
+                "src/App.vue",
+                "src/App.tsx",
+                "src/main/resources/application.yaml",
+                "src/main/resources/application.yml",
+                "src/main/resources/application.properties",
+                "build.gradle",
+                "pom.xml",
+                "package.json"
+        );
+        List<String> found = new ArrayList<>();
+        for (String rel : candidates) {
+            Path p = root.resolve(rel);
+            if (Files.exists(p) && Files.isRegularFile(p)) {
+                if (rel.endsWith(".html") || rel.endsWith(".vue") || rel.endsWith(".tsx")) {
+                    found.add(rel + " (Frontend / UI Web do projeto)");
+                } else {
+                    found.add(rel);
+                }
+            }
+        }
+        return found;
+    }
+
+    private static final int MAX_TREE_LINES = 200;
+    private static final int MAX_FILES_PER_DIR = 20;
+
     private void buildTree(Path current, int maxDepth, int currentDepth, List<String> lines) {
-        if (lines.size() >= 80) return;
+        if (lines.size() >= MAX_TREE_LINES) return;
 
         try (var stream = Files.list(current)) {
-            List<Path> entries = stream.sorted(java.util.Comparator.comparing((Path p) -> !Files.isDirectory(p))
-                    .thenComparing(p -> p.getFileName().toString().toLowerCase())).toList();
+            List<Path> entries = stream.sorted(java.util.Comparator
+                    .comparing((Path p) -> !Files.isDirectory(p))
+                    .thenComparing((Path p) -> {
+                        // Prioriza pasta resources/static/public para que nunca sejam omitidas após grandes pacotes de código
+                        String n = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                        if (Files.isDirectory(p) && (n.equals("resources") || n.equals("static") || n.equals("templates") || n.equals("public"))) {
+                            return 0;
+                        }
+                        return 1;
+                    })
+                    .thenComparing(p -> p.getFileName().toString().toLowerCase(java.util.Locale.ROOT))).toList();
+
+            int fileCountInDir = 0;
+            int omittedFilesInDir = 0;
 
             for (Path entry : entries) {
-                if (lines.size() >= 80) {
-                    lines.add("... (listagem truncada em 80 itens)");
+                if (lines.size() >= MAX_TREE_LINES) {
+                    lines.add("... (listagem truncada em " + MAX_TREE_LINES + " itens)");
                     return;
                 }
 
                 String name = entry.getFileName().toString();
-                if (IGNORED_DIRS.contains(name) || name.startsWith(".")) {
+                if (IGNORED_DIRS.contains(name) || name.startsWith(".") || name.endsWith(".bak")) {
                     continue;
                 }
 
@@ -674,9 +865,18 @@ public class AgentToolExecutor {
                         buildTree(curr, maxDepth, currentDepth + 1, lines);
                     }
                 } else {
-                    String indent = "  ".repeat(Math.max(0, currentDepth - 1));
-                    lines.add(indent + "[ARQ] " + name);
+                    fileCountInDir++;
+                    if (fileCountInDir <= MAX_FILES_PER_DIR) {
+                        String indent = "  ".repeat(Math.max(0, currentDepth - 1));
+                        lines.add(indent + "[ARQ] " + name);
+                    } else {
+                        omittedFilesInDir++;
+                    }
                 }
+            }
+            if (omittedFilesInDir > 0 && lines.size() < MAX_TREE_LINES) {
+                String indent = "  ".repeat(Math.max(0, currentDepth - 1));
+                lines.add(indent + "... (+" + omittedFilesInDir + " arquivos nesta pasta)");
             }
         } catch (Exception ignored) {
         }

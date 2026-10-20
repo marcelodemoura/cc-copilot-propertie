@@ -15,30 +15,33 @@ import java.util.regex.Pattern;
 @Service
 public class AgentLoop {
 
-    private static final int MAX_ITERATIONS = 12;
+    private static final int MAX_ITERATIONS = 15;
 
     private static final String SYSTEM_PROMPT = """
-            Você é um engenheiro de software e copiloto autônomo poliglota (Java, Kotlin, TypeScript/JavaScript, Node.js, React, Angular, Vue, Python, Go, C#, Docker/Infra) e especialista em bancos de dados (Oracle SQL/PL-SQL, PostgreSQL, SQL Server/T-SQL, MySQL, MongoDB, Redis), capaz de trabalhar em múltiplos projetos simultaneamente.
-            Você possui ferramentas para listar projetos ('list_projects'), inspecionar alterações Git ('git_changes'), buscar código ('search_code'), ler/listar arquivos ('read_file', 'list_files'), auditar contratos/DTOs/schemas e editar/criar arquivos ('modify_file', 'write_file') tanto no projeto ativo quanto em outros projetos do workspace (usando o parâmetro opcional 'project').
+            Você é um engenheiro de software e copiloto autônomo poliglota (Java, Kotlin, TypeScript/JavaScript, HTML/CSS/Tailwind, Node.js, React, Angular, Vue, Python, Go, C#, Docker/Infra) e especialista em bancos de dados (Oracle SQL/PL-SQL, PostgreSQL, SQL Server/T-SQL, MySQL, MongoDB, Redis).
+            Você possui ferramentas para listar projetos ('list_projects'), inspecionar alterações Git ('git_changes'), buscar código ('search_code'), ler/listar arquivos ('read_file', 'list_files'), auditar contratos/DTOs/schemas e editar/criar arquivos ('modify_file', 'write_file').
 
-            POSTURA PROATIVA E AUTÔNOMA (REGRA #1 - CRÍTICA):
-            - AGIR PRIMEIRO, NUNCA ENROLAR COM PERGUNTAS: É ESTRITAMENTE PROIBIDO responder devolvendo menus de opções ("Você quer 1 ou 2?", "Responda A, B ou C", "Qual o valor de N/K?", "Quer usar Git ou timestamps?") antes de chamar ferramentas.
-            - Na iteração 1, se o usuário pedir para verificar, analisar, comparar ou alterar qualquer coisa em um ou mais projetos, CHAME AS FERRAMENTAS IMEDIATAMENTE assumindo o padrão mais inteligente.
-            - Quando o usuário perguntar "quais classes/arquivos foram alterados" ou "o que mudou em X e Y", execute IMEDIATAMENTE a ferramenta 'git_changes' para cada projeto mencionado (ex: `git_changes(project="command-center-ws")` e `git_changes(project="command-center-view")`) e liste diretamente os arquivos modificados.
+            REGRA #1 — ISOLAMENTO ESTRITO DO PROJETO ATIVO:
+            - Opere EXCLUSIVAMENTE no Projeto Ativo informado abaixo por padrão (deixe o parâmetro 'project' vazio nas ferramentas).
+            - É ESTRITAMENTE PROIBIDO buscar, listar, ler ou editar arquivos de outro projeto do workspace (como 'command-center-view') quando o usuário disser "neste projeto", "dele", "o front dele", "a interface desse projeto" ou pedir foco no projeto atual, mesmo que o histórico recente da conversa mencione outro projeto. Só acesse outro projeto se o usuário pedir explicitamente pelo nome desse outro projeto na mensagem atual.
+            - Projetos Java/Spring Boot frequentemente possuem sua própria interface gráfica / SPA em `src/main/resources/static/index.html` (ou `src/main/resources/templates/`). NUNCA diga que "não há front-end neste projeto" sem verificar `src/main/resources/static/` e os arquivos de UI listados no contexto do Projeto Ativo!
+
+            REGRA #2 — GOVERNANÇA ENTRE ANÁLISE (SOMENTE LEITURA) E IMPLEMENTAÇÃO (ESCRITA):
+            - MODO ANÁLISE / SUGESTÃO (SOMENTE LEITURA): Se o usuário pedir apenas para analisar, explicar, diagnosticar, verificar ou sugerir opções/melhorias (ex: "dá uma analisada", "sugira 3 opções de melhoria", "como é mostrada a interface", "o que faz"), NUNCA chame `modify_file` nem `write_file`. Use apenas ferramentas de leitura (`list_files`, `read_file`, `search_code`, `git_changes`).
+            - MODO IMPLEMENTAÇÃO / ALTERAÇÃO (ESCRITA REAL): Quando o usuário pedir, ordenar ou autorizar que você faça, aplique, implemente ou altere algo (ex: "faça", "aplique", "implemente", "melhore o front", "altere", "modifique", "aplique a opção X", "atualize o arquivo"), você DEVE executar `read_file` e aplicar a mudança real no arquivo usando `modify_file` (ou `write_file` para arquivos novos) antes de responder! É PROIBIDO apenas mostrar snippets no chat ou perguntar "Qual opção prefere que eu aplique?" quando o usuário já pediu para executar a melhoria.
+
+            REGRA #3 — LEITURA COMPLETA E EDIÇÃO CIRÚRGICA DE ARQUIVOS:
+            - Ao analisar ou editar um arquivo grande (como `src/main/resources/static/index.html`), não se limite às primeiras 250 linhas! Consulte o `[Mapa das próximas seções]` retornado pelo `read_file` e chame `read_file` passando `startLine` e `endLine` para inspecionar o HTML, CSS e as funções JavaScript relevantes.
+            - Para alterar arquivos existentes, use SEMPRE `modify_file` passando em `targetContent` o trecho exato lido do arquivo (sem os prefixos de número de linha `123: `) e em `replacementContent` o código novo completo. NUNCA use `write_file` para sobrescrever um arquivo grande existente com código parcial.
+            - Na iteração 1, NUNCA devolva perguntas ou menus de opções antes de chamar as ferramentas necessárias.
 
             REGRAS ESTRITAS DE FORMATAÇÃO E BREVIDADE:
-            - RESPOSTAS CURTAS E CIRÚRGICAS: Responda em no máximo 1 a 3 parágrafos curtos ou bullet points diretos, salvo se o usuário pedir explicitamente um detalhamento longo.
-            - PROIBIDO: Saudações, introduções ("Com base na análise...", "Analisei os arquivos..."), explicações óbvias do que o código faz linha a linha, resumos repetitivos no final ("Em resumo...", "Dessa forma...") ou seções como "Recomendações Adicionais" / "Próximos Passos" que não foram pedidas.
-            - Se a pergunta for objetiva (ex: "onde fica X?", "qual o impacto de Y?", "gere uma query para Z"), responda direto com o fato ou com o bloco SQL/código enxuto.
-            - Ao editar ou criar arquivos ('modify_file', 'write_file'), confirme em 1 frase quais arquivos foram alterados e mostre APENAS o bloco ```diff essencial. Não explique o código alterado a menos que seja complexo.
-            - Ao sugerir código/queries sem aplicar, mostre apenas o snippet/diff relevante — nunca o arquivo inteiro.
+            - RESPOSTAS CURTAS E CIRÚRGICAS: Responda de forma objetiva e estruturada, sem saudações, sem introduções ("Com base na análise...") e sem conclusões genéricas ("Em resumo...").
+            - Ao editar ou criar arquivos ('modify_file', 'write_file'), confirme quais arquivos foram alterados no disco, resuma em tópicos curtos o que foi implementado e mostre o bloco ```diff essencial.
             - Banco de Dados e Queries:
-              * Identifique as tabelas/colunas reais lendo as entidades (@Entity/@Table, migrations Flyway/Liquibase, schemas Prisma/SQL ou packages PL/SQL) antes de escrever queries, evitando inventar nomes de colunas.
-              * Respeite estritamente o dialeto do banco usado no projeto (ex: Oracle PL/SQL com sequences/packages/triggers .pks/.pkb/.prc/.trg, PostgreSQL, SQL Server, etc.).
-            - Trabalho Entre Projetos e Stacks (Cross-Project):
-              * Se a tarefa envolver múltiplos projetos (ex: Backend + Frontend + Scripts de Banco), passe o nome da pasta ou ID no parâmetro 'project' de 'git_changes', 'search_code', 'read_file', 'list_files', 'modify_file' ou 'write_file' (funciona mesmo para pastas no workspace que ainda não estejam indexadas no banco).
-              * Você pode ler um contrato/entidade/package em um projeto A e criar/atualizar a classe, query ou componente correspondente no projeto B na mesma execução.
-            - Quando perguntado sobre a arquitetura de um projeto: leia o manifesto da stack (package.json, build.gradle, pom.xml, requirements.txt, pyproject.toml, go.mod, etc.) ou README.md, identifique os entrypoints/rotas/componentes principais e resuma em no máximo 3 tópicos curtos (Propósito, Stack, Módulos).
+              * Identifique as tabelas/colunas reais lendo as entidades (@Entity/@Table, migrations Flyway/Liquibase, schemas SQL ou packages PL/SQL) antes de escrever queries.
+            - Trabalho Entre Projetos (Cross-Project):
+              * Apenas quando a tarefa pedir explicitamente integração entre múltiplos projetos, passe o nome ou ID no parâmetro 'project'.
             """;
 
     private final LlmClient llm;
@@ -132,24 +135,31 @@ public class AgentLoop {
                     lastToolCallSignature = callSignature;
                 }
 
-                String toolResult = executor.execute(tc.name(), tc.argumentsJson(), tenantId, kb);
+                String toolResult;
+                if (consecutiveSameCall >= 3) {
+                    toolResult = "[Bloqueio de Loop: Você já executou '" + tc.name() + "' com estes mesmos argumentos. " +
+                            "NÃO repita a mesma chamada. Se estiver lendo um arquivo grande com 'read_file', informe 'startLine' e 'endLine' para ler o próximo trecho, " +
+                            "ou execute 'modify_file' / elabore sua resposta final.]";
+                } else {
+                    toolResult = executor.execute(tc.name(), tc.argumentsJson(), tenantId, kb);
+                }
 
                 if ("list_files".equals(tc.name())) {
                     consecutiveListFiles++;
                     if (consecutiveListFiles >= 2) {
-                        toolResult += "\n[Dica de síntese: A estrutura de pastas principal já foi mapeada. Use 'search_code' para localizar @RestController/@SpringBootApplication ou elabore sua resposta com as informações já disponíveis.]";
+                        toolResult += "\n[Dica de síntese: A estrutura de pastas principal já foi mapeada. Use 'read_file' ou 'search_code' nos arquivos desejados ou elabore sua resposta com as informações já disponíveis.]";
                     }
                 } else {
                     consecutiveListFiles = 0;
                 }
 
-                if (consecutiveSameCall >= 2) {
-                    toolResult += "\n[Aviso do Sistema: Chamada repetida detectada com os mesmos parâmetros. Evite repetir esta ação e prossiga formulando sua análise com as informações obtidas.]";
+                if (consecutiveSameCall == 2) {
+                    toolResult += "\n[Aviso do Sistema: Chamada repetida detectada com os mesmos parâmetros. Evite repetir esta ação; avance para o próximo passo (ex: ler próximas linhas com startLine/endLine, aplicar modify_file ou responder).]";
                 }
 
                 // Limita payload excessivo de ferramentas para não estourar a janela de contexto do LLM
-                if (toolResult != null && toolResult.length() > 8000) {
-                    toolResult = toolResult.substring(0, 8000) + "\n... [trecho restante truncado para preservar a janela de contexto do LLM]";
+                if (toolResult != null && toolResult.length() > 24000) {
+                    toolResult = toolResult.substring(0, 24000) + "\n... [trecho restante truncado para preservar a janela de contexto do LLM; use startLine/endLine no read_file para ler seções específicas]";
                 }
 
                 // registra fontes para rastreabilidade
@@ -204,18 +214,29 @@ public class AgentLoop {
             return sb.toString();
         }
         try {
+            java.nio.file.Path activeRoot = null;
             if (kb != null && !kb.isBlank()) {
                 try {
                     UUID id = UUID.fromString(kb);
                     var pOpt = projectRepo.findById(id);
                     if (pOpt.isPresent()) {
                         var p = pOpt.get();
-                        sb.append("\nProjeto Ativo (padrão quando 'project' não é informado):\n")
+                        sb.append("\nPROJETO ATIVO ATUAL (FOCO OBRIGATÓRIO — padrão quando 'project' está vazio):\n")
                                 .append("- Nome: ").append(p.getName())
                                 .append(" | ID: ").append(p.getId())
                                 .append(" | Raiz: ").append(p.getRootPath()).append("\n");
+                        activeRoot = java.nio.file.Path.of(p.getRootPath()).toAbsolutePath().normalize();
                     }
                 } catch (Exception ignored) {
+                }
+            }
+
+            if (activeRoot != null && java.nio.file.Files.isDirectory(activeRoot)) {
+                List<String> uiFiles = detectFrontendEntrypoints(activeRoot);
+                if (!uiFiles.isEmpty()) {
+                    sb.append("- Interface Gráfica / Frontend (UI) próprio deste projeto: ")
+                            .append(String.join(", ", uiFiles))
+                            .append(" (sempre inspecione/edite estes arquivos quando o usuário falar de 'front', 'UI', 'tela' ou 'interface' deste projeto!)\n");
                 }
             }
 
@@ -223,7 +244,7 @@ public class AgentLoop {
                     ? projectRepo.findByTenantId(tenantId)
                     : projectRepo.findAll();
             if (allProjects != null && !allProjects.isEmpty()) {
-                sb.append("\nProjetos Disponíveis no Workspace (você pode ler, buscar e modificar qualquer um passando o nome ou ID no parâmetro 'project'):\n");
+                sb.append("\nOutros Projetos no Workspace (NÃO acesse a menos que o usuário peça explicitamente pelo nome na pergunta atual):\n");
                 for (var proj : allProjects) {
                     sb.append("- ").append(proj.getName())
                             .append(" (ID: ").append(proj.getId())
@@ -233,6 +254,28 @@ public class AgentLoop {
         } catch (Exception ignored) {
         }
         return sb.toString();
+    }
+
+    private List<String> detectFrontendEntrypoints(java.nio.file.Path root) {
+        List<String> candidates = List.of(
+                "src/main/resources/static/index.html",
+                "src/main/resources/templates/index.html",
+                "public/index.html",
+                "index.html",
+                "src/App.vue",
+                "src/App.tsx",
+                "src/App.jsx",
+                "src/main.ts",
+                "src/main.js"
+        );
+        List<String> found = new ArrayList<>();
+        for (String rel : candidates) {
+            java.nio.file.Path p = root.resolve(rel);
+            if (java.nio.file.Files.exists(p) && java.nio.file.Files.isRegularFile(p)) {
+                found.add(rel);
+            }
+        }
+        return found;
     }
 
     private void loadHistory(String tenantId, String kb, String sessionId, List<Map<String, Object>> messages) {
@@ -246,8 +289,8 @@ public class AgentLoop {
         history.forEach(h -> {
             String q = h.getQuestion() != null ? h.getQuestion() : "";
             String a = h.getAnswer() != null ? h.getAnswer() : "";
-            if (a.length() > 400) {
-                a = a.substring(0, 400) + "\n... [resumo do contexto anterior]";
+            if (a.length() > 2500) {
+                a = a.substring(0, 2500) + "\n... [resumo do contexto anterior]";
             }
             messages.add(Map.of("role", "user", "content", q));
             messages.add(Map.of("role", "assistant", "content", a));

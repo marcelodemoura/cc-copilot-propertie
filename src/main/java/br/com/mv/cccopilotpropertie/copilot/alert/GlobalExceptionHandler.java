@@ -19,13 +19,17 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
+        return handleAsyncTimeout(ex, null, null);
+    }
+
     @ExceptionHandler(AsyncRequestTimeoutException.class)
     public ResponseEntity<Map<String, Object>> handleAsyncTimeout(AsyncRequestTimeoutException ex,
                                                                     HttpServletRequest request,
                                                                     HttpServletResponse response) {
         log.warn("Timeout de requisição assíncrona: {}", ex.getMessage());
         // Se a resposta já foi commitada (ex: SSE) ou o cliente aceita event-stream, evite escrever o corpo
-        if (response.isCommitted() || isSseRequest(request, response)) {
+        if ((response != null && response.isCommitted()) || isSseRequest(request, response)) {
             log.debug("Resposta já commitada ou SSE detectado; apenas retornando status sem corpo");
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         }
@@ -89,12 +93,16 @@ public class GlobalExceptionHandler {
                 .body(buildErrorBody(404, "Recurso não encontrado: " + ex.getResourcePath(), null));
     }
 
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
+        return handleUnexpected(ex, null, null);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex,
                                                                  HttpServletRequest request,
                                                                  HttpServletResponse response) {
         log.error("Erro inesperado", ex);
-        if (response.isCommitted() || isSseRequest(request, response)) {
+        if ((response != null && response.isCommitted()) || isSseRequest(request, response)) {
             log.debug("Resposta já commitada ou SSE detectado; não escrever corpo de erro genérico");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -115,10 +123,14 @@ public class GlobalExceptionHandler {
     }
 
     private boolean isSseRequest(HttpServletRequest request, HttpServletResponse response) {
-        String accept = request.getHeader("Accept");
-        if (accept != null && accept.contains("text/event-stream")) return true;
-        String ct = response.getContentType();
-        if (ct != null && ct.contains("text/event-stream")) return true;
+        if (request != null) {
+            String accept = request.getHeader("Accept");
+            if (accept != null && accept.contains("text/event-stream")) return true;
+        }
+        if (response != null) {
+            String ct = response.getContentType();
+            if (ct != null && ct.contains("text/event-stream")) return true;
+        }
         return false;
     }
 }

@@ -82,42 +82,42 @@ public class AgentTools {
         return null;
     }
 
-    @Tool("Lê o conteúdo de um arquivo pelo caminho relativo (dentro do projeto) ou absoluto com paginação de linhas.")
+    @Tool("Lê o conteúdo de um arquivo pelo caminho relativo (dentro do projeto) ou absoluto com paginação de linhas (startLine e endLine). Para arquivos grandes, retorna também um mapa das próximas seções.")
     public String read_file(
-            @P("Caminho do arquivo a ser lido") String path,
+            @P("Caminho do arquivo a ser lido (ex: src/main/resources/static/index.html)") String path,
             @P(value = "Linha inicial opcional (1-indexado)", required = false) Integer startLine,
             @P(value = "Linha final opcional (inclusive)", required = false) Integer endLine,
-            @P(value = "Nome ou ID do projeto onde está o arquivo (opcional, padrão: projeto ativo)", required = false) String project
+            @P(value = "Nome ou ID do projeto onde está o arquivo (opcional, deixe vazio para usar o projeto ativo)", required = false) String project
     ) {
         return null;
     }
 
-    @Tool("Lista os arquivos e subdiretórios em formato de árvore hierárquica de qualquer projeto do workspace.")
+    @Tool("Lista os arquivos e subdiretórios em formato de árvore hierárquica do projeto ativo (ou de outro projeto se especificado), destacando entrypoints e arquivos de interface/frontend.")
     public String list_files(
             @P(value = "Subcaminho relativo ou pasta a listar (vazio para a raiz do projeto)", required = false) String path,
             @P(value = "Profundidade máxima da árvore (padrão 4, máximo 5)", required = false) Integer maxDepth,
-            @P(value = "Nome ou ID do projeto a explorar (opcional, padrão: projeto ativo)", required = false) String project
+            @P(value = "Nome ou ID do projeto a explorar (opcional, deixe vazio para o projeto ativo)", required = false) String project
     ) {
         return null;
     }
 
-    @Tool("Modifica um arquivo de código existente (no projeto ativo ou em outro projeto do workspace) substituindo um trecho específico pelo novo código.")
+    @Tool("Modifica cirurgicamente um arquivo existente substituindo 'targetContent' por 'replacementContent'. Use APENAS quando o usuário pedir/autorizar alterar ou implementar código (nunca em pedidos exclusivos de análise/sugestão). Sempre leia o trecho antes com 'read_file'.")
     public String modify_file(
-            @P("Caminho do arquivo relativo à raiz do projeto (ex: src/main/java/br/com/mv/UsuarioDTO.java)") String path,
-            @P("Trecho exato do código existente a ser substituído (leia antes com 'read_file')") String targetContent,
-            @P("Novo trecho de código corrigido que substituirá o trecho alvo") String replacementContent,
-            @P(value = "Motivo ou justificativa técnica da correção", required = false) String reason,
-            @P(value = "Nome ou ID do projeto alvo onde o arquivo será modificado (opcional, padrão: projeto ativo)", required = false) String project
+            @P("Caminho do arquivo relativo à raiz do projeto (ex: src/main/resources/static/index.html)") String path,
+            @P("Trecho exato do código existente a ser substituído (copiado do 'read_file', sem os números de linha)") String targetContent,
+            @P("Novo trecho de código completo que substituirá o trecho alvo") String replacementContent,
+            @P(value = "Motivo ou justificativa técnica da alteração", required = false) String reason,
+            @P(value = "Nome ou ID do projeto alvo onde o arquivo será modificado (opcional, deixe vazio para o projeto ativo)", required = false) String project
     ) {
         return null;
     }
 
-    @Tool("Cria um novo arquivo de código ou sobrescreve integralmente um arquivo existente (no projeto ativo ou em outro projeto do workspace).")
+    @Tool("Cria um novo arquivo de código ou sobrescreve integralmente um arquivo pequeno. Use APENAS quando o usuário pedir para criar/implementar código. NUNCA use write_file para atualizar parcialmente um arquivo grande existente (use 'modify_file').")
     public String write_file(
             @P("Caminho do arquivo relativo à raiz do projeto (ex: src/main/java/br/com/mv/NovoServico.java)") String path,
             @P("Conteúdo textual integral a ser gravado no arquivo") String content,
             @P(value = "Motivo técnico da criação ou alteração do arquivo", required = false) String reason,
-            @P(value = "Nome ou ID do projeto alvo onde o arquivo será gravado (opcional, padrão: projeto ativo)", required = false) String project
+            @P(value = "Nome ou ID do projeto alvo onde o arquivo será gravado (opcional, deixe vazio para o projeto ativo)", required = false) String project
     ) {
         return null;
     }

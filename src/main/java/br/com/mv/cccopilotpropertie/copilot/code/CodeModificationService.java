@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -88,16 +89,37 @@ public class CodeModificationService {
 
             String originalContent = Files.readString(targetFile, StandardCharsets.UTF_8);
 
-            if (!originalContent.contains(targetContent)) {
+            String effectiveTarget = targetContent;
+            String effectiveReplacement = safeReplacement;
+
+            if (!originalContent.contains(effectiveTarget)) {
+                // Tenta remover prefixos de número de linha do read_file (ex: "49:   <aside...")
+                String strippedTarget = stripLineNumberPrefixes(effectiveTarget);
+                if (!strippedTarget.equals(effectiveTarget) && originalContent.contains(strippedTarget)) {
+                    effectiveTarget = strippedTarget;
+                    effectiveReplacement = stripLineNumberPrefixes(effectiveReplacement);
+                } else {
+                    // Tenta normalizar quebras de linha (\r\n vs \n)
+                    String normOriginal = originalContent.replace("\r\n", "\n");
+                    String normTarget = strippedTarget.replace("\r\n", "\n");
+                    if (normOriginal.contains(normTarget)) {
+                        originalContent = normOriginal;
+                        effectiveTarget = normTarget;
+                        effectiveReplacement = stripLineNumberPrefixes(effectiveReplacement).replace("\r\n", "\n");
+                    }
+                }
+            }
+
+            if (!originalContent.contains(effectiveTarget)) {
                 return FileModificationResult.failure(
                         relativePath,
                         "O trecho de código alvo ('targetContent') não foi encontrado no arquivo. " +
-                        "Certifique-se de ler o arquivo atualizado com 'read_file' antes de aplicar a alteração."
+                        "Certifique-se de ler as linhas exatas do arquivo atualizado com 'read_file' (usando startLine e endLine) antes de aplicar 'modify_file'."
                 );
             }
 
             // Aplica a substituição em memória
-            String updatedContent = originalContent.replace(targetContent, safeReplacement);
+            String updatedContent = originalContent.replace(effectiveTarget, effectiveReplacement);
 
             // Validação sintática antes de qualquer persistência ou backup
             String syntaxError = validateSyntax(relativePath, updatedContent);
@@ -117,7 +139,7 @@ public class CodeModificationService {
                 indexService.reindexSingleFile(tenantId, knowledgeBase, targetFile);
             }
 
-            String diff = generateDiff(relativePath, targetContent, safeReplacement);
+            String diff = generateDiff(relativePath, effectiveTarget, effectiveReplacement);
             String msg = "Código alterado com sucesso." + (reason != null && !reason.isBlank() ? " Motivo: " + reason : "");
             log.info("Arquivo modificado: {} no projeto {} (backup: {})", relativePath, projectRoot, backupPath);
 
@@ -168,6 +190,16 @@ public class CodeModificationService {
             if (existed) {
                 if (Files.isDirectory(targetFile)) {
                     return FileModificationResult.failure(relativePath, "O caminho especificado é um diretório existente.");
+                }
+                List<String> existingLines = Files.readAllLines(targetFile, StandardCharsets.UTF_8);
+                int newLinesCount = content.split("\n", -1).length;
+                if (existingLines.size() >= 80 && newLinesCount < existingLines.size() / 2) {
+                    return FileModificationResult.failure(
+                            relativePath,
+                            "Operação bloqueada para evitar perda de código: o arquivo '" + relativePath +
+                            "' possui " + existingLines.size() + " linhas, mas o conteúdo enviado possui apenas " +
+                            newLinesCount + " linhas. Para editar trechos de um arquivo existente grande, use 'modify_file' informando 'targetContent' e 'replacementContent'."
+                    );
                 }
                 Path backup = createBackup(targetFile);
                 backupPathStr = backup.toString();
@@ -262,6 +294,26 @@ public class CodeModificationService {
         }
 
         return resolved;
+    }
+
+    private String stripLineNumberPrefixes(String text) {
+        if (text == null || text.isEmpty()) return text;
+        String[] lines = text.split("\n", -1);
+        int numberedCount = 0;
+        for (String line : lines) {
+            if (line.matches("^\\s*\\d+:\\s.*") || line.matches("^\\s*\\d+:$")) {
+                numberedCount++;
+            }
+        }
+        if (numberedCount == 0 || numberedCount < Math.max(1, lines.length / 2)) {
+            return text;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append("\n");
+            sb.append(lines[i].replaceFirst("^\\s*\\d+:\\s?", ""));
+        }
+        return sb.toString();
     }
 
     private Path createBackup(Path file) throws IOException {
